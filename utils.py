@@ -23,14 +23,15 @@ def get_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             # finding child senses
             synset_d['senses'] = []
             for sense in synset.findAll('sense'):
-                synset_d['senses'].append({'id': sense.get('id')})
+                synset_d['senses'].append({'id': sense.get('id'),
+                                           'content': sense.contents[0]})
             # adding to dict of synsets
             synsets_dict[synset_id] = synset_d
     return synsets_dict
 
 
 if __name__ == "__main__":
-    synsets = get_synsets(sys.argv[2:])
+    synsets = get_synsets(sys.argv[1:])
     print(f"Found {len(synsets)} synsets.")
 
     print(f"\nExamples:")
