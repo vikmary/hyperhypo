@@ -47,7 +47,7 @@ if __name__ == "__main__":
     with smart_open(args.data_path, 'rt') as fin, \
             smart_open(tokenized_outpath, 'wt') as f_tok, \
             smart_open(lemmatized_outpath, 'wt') as f_lem:
-        for i, line in enumerate(tqdm(fin, total=num_lines)):
+        for i, line in enumerate(tqdm(fin, total=num_lines, mininterval=10.)):
             if i >= num_lines:
                 break
             line = sanitizer(line.strip())
@@ -61,9 +61,8 @@ if __name__ == "__main__":
                         if len(tokens) < args.min_tokens:
                             continue
                         lemmas = [lemmatizer(t) for t in tokens]
-                        f_tok.write(' '.join(tokens) + '\n')
-                        f_lem.write(' '.join(lemmas) + '\n')
                     except Exception as msg:
                         print(f"WARNING: error {msg} for sent = {sent}")
-                        raise Exception(msg)
                         continue
+                    f_tok.write(' '.join(tokens) + '\n')
+                    f_lem.write(' '.join(lemmas) + '\n')
