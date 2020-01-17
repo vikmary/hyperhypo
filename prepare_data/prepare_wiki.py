@@ -10,7 +10,7 @@ from tqdm import tqdm
 from rusenttokenize import ru_sent_tokenize
 from rusenttokenize import SHORTENINGS, JOINING_SHORTENINGS, PAIRED_SHORTENINGS
 
-from utils import smart_open, count_lines
+from utils import smart_open, count_lines, Sanitizer
 
 
 def parse_args():
@@ -31,6 +31,7 @@ if __name__ == "__main__":
 
     tokenizer = re.compile(r"[\w']+|[^\w ]")
     lemmatizer = pymorphy2.MorphAnalyzer()
+    sanitizer = Sanitizer(filter_diacritical=True, filter_empty_brackets=True)
 
     if args.max_lines is None:
         print(f"Counting number of input lines.")
@@ -48,9 +49,9 @@ if __name__ == "__main__":
             smart_open(tokenized_outpath, 'wt') as f_tok, \
             smart_open(lemmatized_outpath, 'wt') as f_lem:
         for i, line in enumerate(tqdm(fin, total=num_lines)):
-            if i >= args.max_lines:
+            if i >= num_lines:
                 break
-            line = line.strip()
+            line = sanitizer(line.strip())
             if line:
                 for sent in ru_sent_tokenize(line, SHORTENINGS, JOINING_SHORTENINGS,
                                              PAIRED_SHORTENINGS):
