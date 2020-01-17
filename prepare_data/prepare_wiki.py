@@ -5,12 +5,11 @@ import argparse
 import re
 from pathlib import Path
 
-import pymorphy2
 from tqdm import tqdm
 from rusenttokenize import ru_sent_tokenize
 from rusenttokenize import SHORTENINGS, JOINING_SHORTENINGS, PAIRED_SHORTENINGS
 
-from utils import smart_open, count_lines, Sanitizer
+from utils import smart_open, count_lines, Sanitizer, Lemmatizer
 
 
 def parse_args():
@@ -30,8 +29,8 @@ if __name__ == "__main__":
     args = parse_args()
 
     tokenizer = re.compile(r"[\w']+|[^\w ]")
-    lemmatizer = pymorphy2.MorphAnalyzer()
     sanitizer = Sanitizer(filter_diacritical=True, filter_empty_brackets=True)
+    lemmatizer = Lemmatizer()
 
     if args.max_lines is None:
         print(f"Counting number of input lines.")
@@ -55,11 +54,16 @@ if __name__ == "__main__":
             if line:
                 for sent in ru_sent_tokenize(line, SHORTENINGS, JOINING_SHORTENINGS,
                                              PAIRED_SHORTENINGS):
-                    if len(sent) < args.min_characters:
+                    try:
+                        if len(sent) < args.min_characters:
+                            continue
+                        tokens = tokenizer.findall(sent)
+                        if len(tokens) < args.min_tokens:
+                            continue
+                        lemmas = [lemmatizer(t) for t in tokens]
+                        f_tok.write(' '.join(tokens) + '\n')
+                        f_lem.write(' '.join(lemmas) + '\n')
+                    except Exception as msg:
+                        print(f"WARNING: error {msg} for sent = {sent}")
+                        raise Exception(msg)
                         continue
-                    tokens = tokenizer.findall(sent)
-                    if len(tokens) < args.min_tokens:
-                        continue
-                    lemmas = [lemmatizer.parse(t)[0].normal_form for t in tokens]
-                    f_tok.write(' '.join(tokens) + '\n')
-                    f_lem.write(' '.join(lemmas) + '\n')

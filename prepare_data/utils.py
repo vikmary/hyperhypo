@@ -5,9 +5,11 @@ import re
 import sys
 import gzip
 import unicodedata
+import functools
+import pymorphy2
 from pathlib import Path
 from contextlib import contextmanager
-from typing import IO, Union, Optional
+from typing import IO, Union, Optional, List
 
 
 def count_lines(fpath: Union[str, Path]) -> int:
@@ -77,3 +79,14 @@ class Sanitizer:
             utterance = self.filter_empty_brackets(utterance)
         utterance = self.filter_duplicate_whitespaces(utterance)
         return utterance
+
+
+class Lemmatizer:
+
+    def __init__(self) -> None:
+        self.lemmatizer = pymorphy2.MorphAnalyzer()
+
+    @functools.lru_cache(maxsize=20000)
+    def __call__(self, token: str) -> str:
+        return self.lemmatizer.parse(token)[0].normal_form
+
