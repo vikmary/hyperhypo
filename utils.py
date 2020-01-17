@@ -4,6 +4,7 @@
 import sys
 from typing import Union, List, Dict, Iterator
 from pathlib import Path
+import csv
 
 from bs4 import BeautifulSoup
 
@@ -35,14 +36,19 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
-            fin.readline()
-            for row in fin:
-                synset_id, senses, hyper_synset_ids = row.rstrip().split('\t', 2)
+            reader = csv.reader(fin, delimiter='\t')
+            next(reader)
+            for row in reader:
+                synset_id, senses, hyper_synset_ids = row[:3]
+                synset_description = ''
+                if len(row) > 3:
+                    synset_description = row[3]
                 senses = senses.split(',')
                 hyper_synset_ids = hyper_synset_ids.split(',')
                 if synset_id in synsets_dict:
                     raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
                 synsets_dict[synset_id] = {'senses': [{'content': s} for s in senses],
+                                           'description': synset_description,
                                            'hypernyms': [{'id': i}
                                                          for i in hyper_synset_ids]}
     return synsets_dict
@@ -84,6 +90,7 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
                     senses.append({'content': hypernym,
                                    'hypernyms': [{'content': hypernym}]})
     return senses
+
 
 if __name__ == "__main__":
     synsets = get_synsets(sys.argv[1:])
