@@ -4,6 +4,8 @@
 import re
 import sys
 import gzip
+import fileinput
+import zipfile
 import unicodedata
 import functools
 import pymorphy2
@@ -33,6 +35,17 @@ def smart_open(p: Path, *args, **kwargs) -> IO:
         f = open(p, *args, **kwargs)
     yield f
     f.close()
+
+
+def extract_zip(p: Path) -> List[Path]:
+    if '.zip' not in p.suffixes:
+        raise ValueError(f"{p} is not a zip file.")
+    with zipfile.ZipFile(p, 'r') as zip_obj:
+        print(f"unzippping {p} into {p.parent}")
+        zip_obj.extractall(p.parent)
+        extracted_fpaths = [p.parent / n for n in zip_obj.namelist()
+                            if (p.parent / n).is_file()]
+    return extracted_fpaths
 
 
 class Sanitizer:
@@ -89,4 +102,3 @@ class Lemmatizer:
     @functools.lru_cache(maxsize=20000)
     def __call__(self, token: str) -> str:
         return self.lemmatizer.parse(token)[0].normal_form
-
