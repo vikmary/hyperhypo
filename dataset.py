@@ -3,7 +3,7 @@
 
 import json
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Tuple
 
 import torch
 from random import randint, sample
@@ -65,25 +65,25 @@ class HypoDataset(IterableDataset):
             sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
         return sent_subword_idxs, sent_hypo_mask
 
-    def get_all_hypo_samples(self, hypo: str, return_padded_batch: bool = True):
+    def get_all_hypo_samples(self,
+                             hypo: str) \
+                             -> Tuple[List[Union[torch.Tensor, List[int], List[float]]]]:
         hypo_mentions = self.hypo_index[hypo]
-        sents_indices, sents_masks = [], []
+        sents_indices, sents_hypo_masks = [], []
         for sent_idx, in_sent_hypo_idx in hypo_mentions:
             sent_toks = self.corpus[sent_idx].split()
             subword_idxs, hypo_mask = self._get_indices_and_masks(sent_toks, in_sent_hypo_idx)
             sents_indices.append(subword_idxs)
-            sents_masks.append(hypo_mask)
-        if return_padded_batch:
-            batch_parts = self.torchify_and_pad(sents_indices, sents_masks)
-            sents_indices, sents_masks, sents_att_masks = batch_parts
-            return sents_indices, sents_masks, sents_att_masks
-        else:
-            return sents_indices, sents_masks
+            sents_hypo_masks.append(hypo_mask)
+        batch_parts = self.torchify_and_pad(sents_indices, sents_hypo_masks)
+        sents_indices, sents_hypo_masks, sents_att_masks = batch_parts
+        return sents_indices, sents_hypo_masks, sents_att_masks
+
 
     @classmethod
     def torchify_and_pad(cls,
                          sents_indices: List[List[int]],
-                         sents_masks: List[List[float]]):
+                         sents_masks: List[List[float]]) -> Tuple[torch.Tensor]:
         batch_size = len(sents_indices)
         max_len = max(len(idx) for idx in sents_indices)
         padded_indices = torch.zeros(batch_size, max_len, dtype=torch.long)
@@ -132,9 +132,11 @@ if __name__ == '__main__':
 
     print('='*20)
     hyponym = 'кот'
-    batch = ds.get_all_hypo_samples(hyponym, return_padded_batch=True)
+    batch = ds.get_all_hypo_samples(hyponym)
     indices, masks, att_masks = batch
     print(f'BERT inputs for all mentions of a hyponym {hyponym}\n'
           f'Indices: {indices}\n'
           f'Mask: {masks}\n'
           f'Attention masks: {att_masks}')
+
+# TODO:
