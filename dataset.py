@@ -65,7 +65,7 @@ class HypoDataset(IterableDataset):
             sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
         return sent_subword_idxs, sent_hypo_mask
 
-    def get_all_hypo_samples(self, hypo, return_padded_batch=True):
+    def get_all_hypo_samples(self, hypo: str, return_padded_batch: bool = True):
         hypo_mentions = self.hypo_index[hypo]
         sents_indices, sents_masks = [], []
         for sent_idx, in_sent_hypo_idx in hypo_mentions:
@@ -81,7 +81,9 @@ class HypoDataset(IterableDataset):
             return sents_indices, sents_masks
 
     @classmethod
-    def torchify_and_pad(cls, sents_indices, sents_masks):
+    def torchify_and_pad(cls,
+                         sents_indices: List[List[int]],
+                         sents_masks: List[List[float]]):
         batch_size = len(sents_indices)
         max_len = max(len(idx) for idx in sents_indices)
         padded_indices = torch.zeros(batch_size, max_len, dtype=torch.long)
