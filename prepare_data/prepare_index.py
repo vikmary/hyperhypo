@@ -4,10 +4,13 @@
 import argparse
 import csv
 import json
+import itertools
 from pathlib import Path
-from typing import List, Tuple, Iterator, Optional
+from typing import List, Tuple, Dict, Iterator, Optional
 from collections import defaultdict
 
+from hashedindex import textparser
+import hashedindex
 from tqdm import tqdm
 
 from utils import smart_open, count_lines, Lemmatizer, Sanitizer
@@ -15,8 +18,8 @@ from utils import smart_open, count_lines, Lemmatizer, Sanitizer
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data-paths', '-d', type=Path, nargs='+',
-                        help='paths to lemmatized corpuses')
+    parser.add_argument('--data-path', '-d', type=Path,
+                        help='path to lemmatized corpora')
     parser.add_argument('--train-path', '-t', type=Path,
                         help='path to text file with training data')
     parser.add_argument('--max-lines', '-l', type=int, default=None,
@@ -24,20 +27,16 @@ def parse_args():
     return parser.parse_args()
 
 
-def find_tokens(tokens: str,
-                utterances: Iterator[str],
-                progress_bar: tqdm = None,
-                max_utterances: Optional[int] = None) -> List[List[Tuple[int, int]]]:
-    entries = defaultdict(list)
-    for i_u, utter in enumerate(utterances):
-        if progress_bar is not None:
-            progress_bar.update(1)
-        if max_utterances is not None and (i_u >= max_utterances):
-            return entries
+def build_index(utterances: Iterator[str],
+                max_utterances: int) -> Dict[str, List[Tuple[int, int]]]:
+    index = hashedindex.HashedIndex()
+
+    for i_u, utter in tqdm(enumerate(utterances), total=max_utterances):
+        if i_u >= max_utterances:
+            break
         for i_t, utter_token in enumerate(utter.split()):
-            if utter_token in tokens:
-                entries[utter_token].append((i_u, i_t))
-    return entries
+            index.add_term_occurrence(utter_token, (i_u, i_t))
+    return index.items()
 
 
 def read_training_data(fp: Path) -> List[Tuple[str, str]]:
@@ -68,26 +67,25 @@ if __name__ == "__main__":
 
     if args.max_lines is None:
         print(f"Counting number of input lines.")
-        num_lines = sum(count_lines(fp) for fp in args.data_paths)
+        num_lines = count_lines(args.data_path)
     else:
         num_lines = args.max_lines
 
-    entries = {h: [] for h in hyponyms}
-    progress_bar = tqdm(total=num_lines, mininterval=10.)
-    for fp in args.data_paths:
-        with smart_open(fp, 'rt') as fin:
-            new_entries = find_tokens(hyponyms, fin,
-                                      progress_bar=progress_bar,
-                                      max_utterances=num_lines)
-        for t, idxs in new_entries.items():
-            entries[t].extend(idxs)
-        if progress_bar.n >= num_lines:
-            break
-    progress_bar.close()
+    with smart_open(args.data_path, 'rt') as fin:
+        inverted_index = build_index(fin, max_utterances=num_lines)
 
-    out_path = args.train_path.with_name(args.train_path.name.split('.')[0] +
-                                         'index.json')
-    print(f"Writing index to {out_path}.")
-    json.dump(entries, open(out_path, 'wt'), indent=2, ensure_ascii=False)
-                
+    out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
+                                        '.full.index.json')
+    print(f"Writing full index to {out_path}.")
+    json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
+              open(out_path, 'wt'), indent=2, ensure_ascii=False)
 
+    hypo_entries = {h: list(inverted_index.get(h, [])) for h in hyponyms}
+    num_entries = len(list(itertools.chain(*hypo_entries.values())))
+    print(f"Found {num_entries} hyponym entries,"
+          f" {num_entries / len(hypo_entries):.3} per hyponym.")
+
+    out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
+                                        '.train.index.json')
+    print(f"Writing training index to {out_path}.")
+    json.dump(hypo_entries, open(out_path, 'wt'), indent=2, ensure_ascii=False)
