@@ -17,8 +17,11 @@ def parse_args():
                         help='path to a output sumsamptions file')
     parser.add_argument('--ruwordnet-dir', '-w', type=Path,
                         help='path to a ruwordnet directory')
-    parser.add_argument('--filter-phrases', action='store_true',
-                        help='whether to filter hyponyms and hypernyms consisting of'
+    parser.add_argument('--filter-hyponym-phrases', action='store_true',
+                        help='whether to filter hyponyms consisting of'
+                        ' multiple words')
+    parser.add_argument('--filter-hypernym-phrases', action='store_true',
+                        help='whether to filter hypernyms consisting of'
                         ' multiple words')
     return parser.parse_args()
 
@@ -42,9 +45,9 @@ if __name__ == "__main__":
                     for s in synset['senses']
                     for hyper_synset in synset['hypernyms']
                     for hyper_s in all_synsets[hyper_synset['id']]['senses'])
-    if args.filter_phrases:
-        subsumptions = filter(lambda h: (len(h[0].split()) == 1)
-                              and (len(h[1].split()) == 1),
-                              subsumptions)
+    if args.filter_hyponym_phrases:
+        subsumptions = filter(lambda h: len(h[0].split()) == 1, subsumptions)
+    if args.filter_hypernym_phrases:
+        subsumptions = filter(lambda h: len(h[1].split()) == 1, subsumptions)
 
     write_subsumptions(subsumptions, fname=args.out_path)
