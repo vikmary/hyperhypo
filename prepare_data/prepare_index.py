@@ -75,7 +75,7 @@ if __name__ == "__main__":
         inverted_index = build_index(fin, max_utterances=num_lines)
 
     out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
-                                        '.full.index.json')
+                                        '.index-full.json')
     print(f"Writing full index to {out_path}.")
     json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
               open(out_path, 'wt'), indent=2, ensure_ascii=False)
@@ -86,6 +86,6 @@ if __name__ == "__main__":
           f" {num_entries / len(hypo_entries):.3} per hyponym.")
 
     out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
-                                        '.train.index.json')
+                                        '.index-train.json')
     print(f"Writing training index to {out_path}.")
     json.dump(hypo_entries, open(out_path, 'wt'), indent=2, ensure_ascii=False)
