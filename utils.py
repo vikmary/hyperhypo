@@ -4,6 +4,7 @@
 import sys
 from typing import Union, List, Dict, Iterator
 from pathlib import Path
+import random
 import csv
 
 from bs4 import BeautifulSoup
@@ -128,6 +129,16 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
     return senses
 
 
+def get_all_related(synset_id: str,
+                    synsets: Dict[str, dict],
+                    relation_types: List[str]=['POS_synonymy', 'hypernyms']) -> List[str]:
+    related = [synset_id]
+    for r_type in relation_types:
+        for r_synset_id in synsets[synset_id].get(r_type, []):
+            related.extend(get_all_related(r_synset_id, synsets, relation_types))
+    return related
+
+
 if __name__ == "__main__":
     data_path = Path(sys.argv[1])
 
@@ -141,3 +152,9 @@ if __name__ == "__main__":
         if i > 2:
             break
         sys.stderr.write(f'{s}\n')
+
+    synset_id = random.choice(list(synsets.keys()))
+    sys.stderr.write(f"\nSynsets related to {synset_id}"
+                     f" ({synsets[synset_id]['ruthes_name']}):\n")
+    for i, s_id in enumerate(get_all_related(synset_id, synsets)):
+        sys.stderr.write(f'{i+1}. {synsets[s_id]}\n')
