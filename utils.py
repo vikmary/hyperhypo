@@ -49,9 +49,9 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
                 if synset_id in synsets:
                     raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
                 synsets[synset_id] = {'senses': [{'content': s} for s in senses],
-                                           'description': synset_description,
-                                           'hypernyms': [{'id': i}
-                                                         for i in hyper_synset_ids]}
+                                      'description': synset_description,
+                                      'hypernyms': [{'id': i}
+                                                    for i in hyper_synset_ids]}
     return synsets
 
 
@@ -93,22 +93,24 @@ def enrich_with_wordnet_relations(synsets: dict,
                 hypernym_id, hyponym_id = attrs['parent_id'], attrs['child_id']
                 if 'hypernyms' not in synsets[hyponym_id]:
                     synsets[hyponym_id]['hypernyms'] = []
-                if hypernym_id not in synsets[hyponym_id]['hypernyms']:
-                    synsets[hyponym_id]['hypernyms'].append(hypernym_id)
+                hypernym = {'id': hypernym_id}
+                if hypernym not in synsets[hyponym_id]['hypernyms']:
+                    synsets[hyponym_id]['hypernyms'].append(hypernym)
             elif relation_type in ('instance hypernym', 'hypernym'):
                 hypernym_id, hyponym_id = attrs['child_id'], attrs['parent_id']
                 if 'hypernyms' not in synsets[hyponym_id]:
                     synsets[hyponym_id]['hypernyms'] = []
-                if hypernym_id not in synsets[hyponym_id]['hypernyms']:
-                    synsets[hyponym_id]['hypernyms'].append(hypernym_id)
+                hypernym = {'id': hypernym_id}
+                if hypernym not in synsets[hyponym_id]['hypernyms']:
+                    synsets[hyponym_id]['hypernyms'].append(hypernym)
             elif relation_type in ('antonym', 'POS-synonymy'):
-                pair = attrs['child_id'], attrs['parent_id']
-                if pair[1] not in synsets[pair[0]].get(relation_type, []):
-                    synsets[pair[0]][relation_type] = \
-                        synsets[pair[0]].get(relation_type, []) + [pair[1]]
-                if pair[0] not in synsets[pair[1]].get(relation_type, []):
-                    synsets[pair[1]][relation_type] = \
-                        synsets[pair[1]].get(relation_type, []) + [pair[0]]
+                w0, w1 = attrs['child_id'], attrs['parent_id']
+                if {'id': w0} not in synsets[w1].get(relation_type, []):
+                    synsets[w1][relation_type] = \
+                        synsets[w1].get(relation_type, []) + [{'id': w0}]
+                if {'id': w1} not in synsets[w0].get(relation_type, []):
+                    synsets[w0][relation_type] = \
+                        synsets[w0].get(relation_type, []) + [{'id': w1}]
             else:
                 raise ValueError(f"invalid relation name '{relation_type}'")
 
@@ -134,9 +136,10 @@ def get_all_related(synset_id: str,
                     relation_types: List[str]=['POS_synonymy', 'hypernyms']) -> List[str]:
     related = [synset_id]
     for r_type in relation_types:
-        for r_synset_id in synsets[synset_id].get(r_type, []):
-            related.extend(get_all_related(r_synset_id, synsets, relation_types))
-    return related
+        for r_synset_d in synsets[synset_id].get(r_type, []):
+            if r_synset_d['id'] not in related:
+                related.extend(get_all_related(r_synset_d['id'], synsets, relation_types))
+    return list(set(related))
 
 
 if __name__ == "__main__":
