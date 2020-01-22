@@ -74,18 +74,22 @@ if __name__ == "__main__":
     with smart_open(args.data_path, 'rt') as fin:
         inverted_index = build_index(fin, max_utterances=num_lines)
 
-    out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
-                                        '.index-full.json')
+    # dumping full index
+    base_name = args.data_path.name.split('.')[0]
+    if args.max_lines is not None:
+        base_name += f'-head-{args.max_lines}'
+
+    out_path = args.data_path.with_name(base_name + '.index-full.json')
     print(f"Writing full index to {out_path}.")
     json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
               open(out_path, 'wt'), indent=2, ensure_ascii=False)
 
+    # dumping index for train hyponyms only
     hypo_entries = {h: list(inverted_index.get(h, [])) for h in hyponyms}
     num_entries = len(list(itertools.chain(*hypo_entries.values())))
     print(f"Found {num_entries} hyponym entries,"
           f" {num_entries / len(hypo_entries):.3} per hyponym.")
 
-    out_path = args.data_path.with_name(args.data_path.name.split('.')[0] +
-                                        '.index-train.json')
+    out_path = args.data_path.with_name(base_name + '.index-train.json')
     print(f"Writing training index to {out_path}.")
     json.dump(hypo_entries, open(out_path, 'wt'), indent=2, ensure_ascii=False)
