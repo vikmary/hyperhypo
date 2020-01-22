@@ -32,7 +32,7 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key, senses and hyperonyms as values."""
-    synsets_dict = {}
+    synsets = {}
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
@@ -45,19 +45,18 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
                     synset_description = row[3]
                 senses = senses.split(',')
                 hyper_synset_ids = hyper_synset_ids.split(',')
-                if synset_id in synsets_dict:
+                if synset_id in synsets:
                     raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
-                synsets_dict[synset_id] = {'senses': [{'content': s} for s in senses],
+                synsets[synset_id] = {'senses': [{'content': s} for s in senses],
                                            'description': synset_description,
                                            'hypernyms': [{'id': i}
                                                          for i in hyper_synset_ids]}
-    return synsets_dict
+    return synsets
 
 
-def get_synsets(fpaths: Iterator[Union[str, Path]],
-                relation_fpaths: Iterator[Union[str, Path]]=tuple()) -> Dict:
+def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key and senses as values."""
-    synsets_dict = {}
+    synsets = {}
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
@@ -65,7 +64,7 @@ def get_synsets(fpaths: Iterator[Union[str, Path]],
         for synset in xml_parser.findAll('synset'):
             synset_d = synset.attrs
             synset_id = synset_d.pop('id')
-            if synset_id in synsets_dict:
+            if synset_id in synsets:
                 raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
             # finding child senses
             synset_d['senses'] = []
@@ -73,7 +72,12 @@ def get_synsets(fpaths: Iterator[Union[str, Path]],
                 synset_d['senses'].append({'id': sense.get('id'),
                                            'content': sense.contents[0]})
             # adding to dict of synsets
-            synsets_dict[synset_id] = synset_d
+            synsets[synset_id] = synset_d
+    return synsets
+
+
+def enrich_with_wordnet_relations(synsets: dict,
+                                  relation_fpaths: Iterator[Union[str, Path]]) -> None:
     for fp in relation_fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
@@ -86,27 +90,26 @@ def get_synsets(fpaths: Iterator[Union[str, Path]],
                 continue
             elif relation_type in ('instance hyponym', 'hyponym'):
                 hypernym_id, hyponym_id = attrs['parent_id'], attrs['child_id']
-                if 'hypernyms' not in synsets_dict[hyponym_id]:
-                    synsets_dict[hyponym_id]['hypernyms'] = []
-                if hypernym_id not in synsets_dict[hyponym_id]['hypernyms']:
-                    synsets_dict[hyponym_id]['hypernyms'].append(hypernym_id)
+                if 'hypernyms' not in synsets[hyponym_id]:
+                    synsets[hyponym_id]['hypernyms'] = []
+                if hypernym_id not in synsets[hyponym_id]['hypernyms']:
+                    synsets[hyponym_id]['hypernyms'].append(hypernym_id)
             elif relation_type in ('instance hypernym', 'hypernym'):
                 hypernym_id, hyponym_id = attrs['child_id'], attrs['parent_id']
-                if 'hypernyms' not in synsets_dict[hyponym_id]:
-                    synsets_dict[hyponym_id]['hypernyms'] = []
-                if hypernym_id not in synsets_dict[hyponym_id]['hypernyms']:
-                    synsets_dict[hyponym_id]['hypernyms'].append(hypernym_id)
+                if 'hypernyms' not in synsets[hyponym_id]:
+                    synsets[hyponym_id]['hypernyms'] = []
+                if hypernym_id not in synsets[hyponym_id]['hypernyms']:
+                    synsets[hyponym_id]['hypernyms'].append(hypernym_id)
             elif relation_type in ('antonym', 'POS-synonymy'):
                 pair = attrs['child_id'], attrs['parent_id']
-                if pair[1] not in synsets_dict[pair[0]].get(relation_type, []):
-                    synsets_dict[pair[0]][relation_type] = \
-                        synsets_dict[pair[0]].get(relation_type, []) + [pair[1]]
-                if pair[0] not in synsets_dict[pair[1]].get(relation_type, []):
-                    synsets_dict[pair[1]][relation_type] = \
-                        synsets_dict[pair[1]].get(relation_type, []) + [pair[0]]
+                if pair[1] not in synsets[pair[0]].get(relation_type, []):
+                    synsets[pair[0]][relation_type] = \
+                        synsets[pair[0]].get(relation_type, []) + [pair[1]]
+                if pair[0] not in synsets[pair[1]].get(relation_type, []):
+                    synsets[pair[1]][relation_type] = \
+                        synsets[pair[1]].get(relation_type, []) + [pair[0]]
             else:
                 raise ValueError(f"invalid relation name '{relation_type}'")
-    return synsets_dict
 
 
 def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
@@ -127,8 +130,10 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 if __name__ == "__main__":
     data_path = Path(sys.argv[1])
-    synsets = get_synsets(data_path.glob('synsets.*'),
-                          data_path.glob('synset_relations.*'))
+
+    synsets = get_wordnet_synsets(data_path.glob('synsets.*'))
+    enrich_with_wordnet_relations(synsets, data_path.glob('synset_relations.*'))
+
     sys.stderr.write(f"Found {len(synsets)} synsets.\n")
 
     sys.stderr.write(f"\nExamples:\n")

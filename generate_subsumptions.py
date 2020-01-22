@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Iterator, Tuple
 
-from utils import get_train_synsets, get_synsets
+from utils import get_train_synsets, get_wordnet_synsets
 
 
 def parse_args():
@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     train_synsets = get_train_synsets(args.train_data_paths)
 
-    all_synsets = get_synsets(args.ruwordnet_dir.glob('synsets*'))
+    all_synsets = get_wordnet_synsets(args.ruwordnet_dir.glob('synsets*'))
 
     subsumptions = ((s['content'].lower(), hyper_s['content'].lower())
                     for synset in train_synsets.values()

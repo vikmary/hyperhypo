@@ -4,7 +4,7 @@
 import argparse
 import csv
 
-from utils import get_synsets
+from utils import get_wordnet_synsets
 
 
 def parse_args():
