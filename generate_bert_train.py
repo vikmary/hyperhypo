@@ -14,7 +14,8 @@ def parse_args():
                         help='path(s) to training data')
     parser.add_argument('--wordnet-dir', '-w', type=Path,
                         help='path to a wordnet directory')
-    parser.add_argument('output_path', help='output file with candidates')
+    parser.add_argument('--output_path', '-o', type=Path,
+                        help='output file with candidates')
     return parser.parse_args()
 
 
