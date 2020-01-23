@@ -3,7 +3,7 @@
 
 import json
 from pathlib import Path
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Optional
 
 import torch
 from random import randint, sample
@@ -17,14 +17,16 @@ class HypoDataset(IterableDataset):
                  tokenizer: BertTokenizer,
                  corpus_path: Union[str, Path],
                  hypo_index_path: Union[str, Path],
-                 train_set_path: Union[str, Path]):
+                 train_set_path: Union[str, Path],
+                 hypernym_list: List[str]):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
+        self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
 
-    @staticmethod
-    def _read_json(hypo_index_path: Union[str, Path]):
+    @classmethod
+    def _read_json(cls, hypo_index_path: Union[str, Path]):
         with open(hypo_index_path, encoding='utf8') as handle:
             return json.load(handle)
 
@@ -47,10 +49,12 @@ class HypoDataset(IterableDataset):
                       f' In index: {hypos_in_index}')
 
             hypo = sample(hypos_in_index, 1)[0]
+            hype = sample(hypes + hype_hypes, 1)[0]
+            hype_idx = self.hypernyn_to_idx[hype]
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
             subword_idxs, hypo_mask = self._get_indices_and_masks(sent_toks, in_sent_hypo_idx)
-            yield subword_idxs, hypo_mask
+            yield subword_idxs, hypo_mask, hype_idx
 
     def _get_indices_and_masks(self, sent_tokens: List[str], in_sent_hypo_idx: int):
         sent_subword_idxs = []
@@ -79,16 +83,17 @@ class HypoDataset(IterableDataset):
         sents_indices, sents_hypo_masks, sents_att_masks = batch_parts
         return sents_indices, sents_hypo_masks, sents_att_masks
 
-
     @classmethod
     def torchify_and_pad(cls,
                          sents_indices: List[List[int]],
-                         sents_masks: List[List[float]]) -> Tuple[torch.Tensor]:
+                         sents_masks: List[List[float]],
+                         hype_idxs: Optional[List[int]] = None) -> Tuple[torch.Tensor]:
         batch_size = len(sents_indices)
         max_len = max(len(idx) for idx in sents_indices)
         padded_indices = torch.zeros(batch_size, max_len, dtype=torch.long)
         padded_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
         padded_att_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
+
         for n, (sent_idxs, sent_mask) in enumerate(zip(sents_indices, sents_masks)):
             up_to = len(sent_idxs)
             sent_idxs = torch.tensor(sent_idxs)
@@ -96,14 +101,26 @@ class HypoDataset(IterableDataset):
             padded_indices[n, :up_to] = sent_idxs
             padded_mask[n, :up_to] = sent_mask
             padded_att_mask[n, :up_to] = 1.0
-        return padded_indices, padded_mask, padded_att_mask
+        if hype_idxs:
+            hype_idxs = torch.tensor(hype_idxs)
+            return padded_indices, padded_mask, padded_att_mask, hype_idxs
+        else:
+            return padded_indices, padded_mask, padded_att_mask
 
 
-def batch_collate(batch: List[Union[List[float], List[int]]]):
+def get_hypernyms_list_from_train(train_path: Union[Path, str]) -> List[str]:
+    train_set = HypoDataset._read_json(train_path)
+    hypernyms_set = set()
+    for hypos, hypes, hype_hypes in train_set:
+        hypernyms_set.update(hypes + hype_hypes)
+    return list(hypernyms_set)
+
+
+def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch.Tensor]:
     """ Pads batch """
-    indices, masks = list(zip(*batch))
-    indices, masks, attention_masks = HypoDataset.torchify_and_pad(indices, masks)
-    return indices, masks, attention_masks
+    indices, masks, hype_idxs = list(zip(*batch))
+    indices, masks, attention_masks, hype_idxs = HypoDataset.torchify_and_pad(indices, masks, hype_idxs)
+    return indices, masks, attention_masks, hype_idxs
 
 
 if __name__ == '__main__':
@@ -113,22 +130,29 @@ if __name__ == '__main__':
     train_set_path = 'sample_data/tst_train.json'
 
     tokenizer = BertTokenizer(tokenizer_vocab_path, do_lower_case=False)
+    hype_list = get_hypernyms_list_from_train(train_set_path)
+    print(f'Hypernym list: {hype_list}')
     ds = HypoDataset(tokenizer,
                      corpus_path,
                      hypo_index_path,
-                     train_set_path)
+                     train_set_path,
+                     hype_list)
 
-    sentence_indices, sentence_hypo_mask = next(iter(ds))
+    sentence_indices, sentence_hypo_mask, hype_idx = next(iter(ds))
     print(f'Indices: {sentence_indices}\n'
           f'Hypo Mask: {sentence_hypo_mask}')
     print('Note that dataset samples randomly form all possible samples')
 
+
     print('=' * 20)
+
+
     dl = DataLoader(ds, batch_size=2, collate_fn=batch_collate)
-    idxs_batch, mask_batch, attention_masks_batch = next(iter(dl))
+    idxs_batch, mask_batch, attention_masks_batch, hype_idxs = next(iter(dl))
     print(f'Indices batch: {idxs_batch}\n'
           f'Mask batch: {mask_batch}\n'
-          f'Attention mask batch: {attention_masks_batch}')
+          f'Attention mask batch: {attention_masks_batch}\n'
+          f'Hype indices batch: {hype_idxs}')
 
     print('='*20)
     hyponym = 'кот'
@@ -139,4 +163,5 @@ if __name__ == '__main__':
           f'Mask: {masks}\n'
           f'Attention masks: {att_masks}')
 
-# TODO:
+# TODO: add repetion of the same hypo
+# TODO: separate class
