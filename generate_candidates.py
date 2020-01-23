@@ -3,27 +3,30 @@
 
 import argparse
 import csv
+from pathlib import Path
 
 from utils import get_wordnet_synsets
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('synset_paths', nargs='+',
-                        help='xml files with synset data')
-    parser.add_argument('output_path', help='output file with candidates')
+    parser.add_argument('--wordnet-dir', '-w', type=Path,
+                        help='path to a wordnet directory')
+    parser.add_argument('--output_path', '-o', type=Path,
+                        help='output file with candidates')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    synsets = get_synsets(args.synset_paths)
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
 
     with open(args.output_path, 'wt') as fout:
-        writer = csv.writer(fout, delimiter='\t', quoting=csv.QUOTE_MINIMAL, quotechar='"')
+        writer = csv.writer(fout, delimiter='\t', quoting=csv.QUOTE_MINIMAL,
+                            quotechar='"')
 
         for synset_id, synset in synsets.items():
-            writer.writerow([synset_id,
-                             synset['ruthes_name'].replace('\t', ' '),
-                             ', '.join(s['content'].replace('\t', ' ')
-                                       for s in synset['senses'])])
+            for sense in synset['senses']:
+                writer.writerow([sense['content'].lower(),
+                                 synset_id,
+                                 synset['ruthes_name'].lower()])
