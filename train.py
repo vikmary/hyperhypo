@@ -34,12 +34,14 @@ tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
 model = HyBert(bert, tokenizer, hype_list)
 criterion = torch.nn.CrossEntropyLoss()
 # TODO: add option for passing model.bert.parameters to train embeddings
-optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=1e-5)
+optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=5e-5)
 
+# TODO: add warmap
+# TODO: add gradient accumulation
 for idxs_batch, mask_batch, attention_masks_batch, hype_idxs in dl:
     model.zero_grad()
     response = model(idxs_batch, mask_batch, attention_masks_batch)
     loss = criterion(response, hype_idxs)
+    loss.backward()
     print(loss)
     optimizer.step()
-    break
