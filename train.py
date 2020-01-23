@@ -37,6 +37,7 @@ criterion = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=1e-5)
 
 for idxs_batch, mask_batch, attention_masks_batch, hype_idxs in dl:
+    model.zero_grad()
     response = model(idxs_batch, mask_batch, attention_masks_batch)
     loss = criterion(response, hype_idxs)
     print(loss)
