@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch import Tensor, LongTensor
 from transformers import BertModel, BertConfig, BertTokenizer
 
+from dataset import get_hypernyms_list_from_train
 from embedder import get_word_embeddings
 
 
@@ -53,12 +54,8 @@ if __name__ == '__main__':
     tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
 
     # Get candidate hypernyms
-    with open('sample_data/tst_train.json') as handle:
-        train_data = json.load(handle)
-    # h - hypernyms, hh - hypernyms of hypernyms
-    hypernyms = []
-    for _, h, hh in train_data:
-        hypernyms.extend(h + hh)
+    train_set_path = 'sample_data/tst_train.json'
+    hypernyms = get_hypernyms_list_from_train(train_set_path)
 
     model = HyBert(bert, tokenizer, hypernyms)
 
