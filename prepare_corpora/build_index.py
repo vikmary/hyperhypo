@@ -79,7 +79,7 @@ if __name__ == "__main__":
     if args.max_lines is not None:
         base_name += f'-head-{args.max_lines}'
 
-    out_path = args.data_path.with_name(base_name + '.index-full.json')
+    out_path = args.data_path.with_name('index.full.' + base_name + '.json')
     print(f"Writing full index to {out_path}.")
     json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
               open(out_path, 'wt'), indent=2, ensure_ascii=False)
@@ -90,6 +90,6 @@ if __name__ == "__main__":
     print(f"Found {num_entries} hyponym entries,"
           f" {num_entries / len(hypo_entries):.3} per hyponym.")
 
-    out_path = args.data_path.with_name(base_name + '.index-train.json')
+    out_path = args.data_path.with_name('index.train.' + base_name + '.json')
     print(f"Writing training index to {out_path}.")
     json.dump(hypo_entries, open(out_path, 'wt'), indent=2, ensure_ascii=False)

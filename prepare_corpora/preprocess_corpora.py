@@ -53,7 +53,7 @@ if __name__ == "__main__":
         if i >= num_lines:
             break
         base_name = fp.name.split('.')[0]
-        tokenized_outpath = fp.with_name(base_name + '.token.txt.gz')
+        tokenized_outpath = fp.with_name('corpus.' + base_name + '.token.txt.gz')
         lemmatized_outpath = fp.with_name(base_name + '.lemma.txt.gz')
         print(f"Writing tokenized corpus to {tokenized_outpath}.")
         print(f"Writing lemmatized corpus to {lemmatized_outpath}.")

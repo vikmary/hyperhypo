@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys
-from typing import Union, List, Dict, Iterator
+from typing import Union, List, Dict, Iterator, Callable
 from pathlib import Path
 import random
 import csv
@@ -140,6 +140,17 @@ def get_all_related(synset_id: str,
             if r_synset_d['id'] not in related:
                 related.extend(get_all_related(r_synset_d['id'], synsets, relation_types))
     return list(set(related))
+
+
+def get_cased(s: str, tokenizer: Callable) -> str:
+    cands = [s, s.upper(), s.title()]
+    if ' ' in s:
+        cands.append(s[0].upper() + s[1:])
+
+    cand_lens = [len(tokenizer(c)) for c in cands]
+    min_len = min(cand_lens)
+
+    return cands[cand_lens.index(min_len)]
 
 
 if __name__ == "__main__":
