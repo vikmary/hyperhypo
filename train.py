@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from transformers import BertTokenizer, BertConfig, BertModel
+from tensorboardX import SummaryWriter
 
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
@@ -35,6 +36,7 @@ model = HyBert(bert, tokenizer, hype_list)
 criterion = torch.nn.CrossEntropyLoss()
 # TODO: add option for passing model.bert.parameters to train embeddings
 optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=5e-5)
+writer = SummaryWriter()
 
 # TODO: add warmap
 # TODO: add gradient accumulation
@@ -43,5 +45,7 @@ for idxs_batch, mask_batch, attention_masks_batch, hype_idxs in dl:
     response = model(idxs_batch, mask_batch, attention_masks_batch)
     loss = criterion(response, hype_idxs)
     loss.backward()
-    print(loss)
+    writer.add_scalar('log-loss', loss)
     optimizer.step()
+
+writer.close()
