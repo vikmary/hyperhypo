@@ -19,12 +19,14 @@ class HypoDataset(IterableDataset):
                  corpus_path: Union[str, Path],
                  hypo_index_path: Union[str, Path],
                  train_set_path: Union[str, Path],
-                 hypernym_list: List[str]):
+                 hypernym_list: List[str],
+                 debug: bool = False):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
         self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.debug = debug
 
     @classmethod
     def _read_json(cls, hypo_index_path: Union[str, Path]):
@@ -43,9 +45,10 @@ class HypoDataset(IterableDataset):
             hypos_in_index = [h for h in hypos if h in self.hypo_index]
 
             if not hypos_in_index:
-                print(f'Empty index for hypos: {hypos}')
+                if self.debug:
+                    print(f'Empty index for hypos: {hypos}')
                 continue
-            if len(hypos) != len(hypos_in_index):
+            if self.debug and len(hypos) != len(hypos_in_index):
                 print(f'Some hypos are lost. Original: {hypos},'
                       f' In index: {hypos_in_index}')
 
