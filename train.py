@@ -11,6 +11,8 @@ from tensorboardX import SummaryWriter
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 # tokenizer_vocab_path = 'sample_data/vocab.txt'
 # corpus_path = 'sample_data/tst_corpus.txt'
 # hypo_index_path = 'sample_data/tst_index.json'
@@ -43,16 +45,22 @@ bert = BertModel.from_pretrained(model_weights_path, config=config)
 tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
 
 model = HyBert(bert, tokenizer, hype_list)
+model.to(device)
+
 criterion = torch.nn.CrossEntropyLoss()
 # TODO: add option for passing model.bert.parameters to train embeddings
 optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=3e-5)
 writer = SummaryWriter()
 
+def to_device(*args):
+    return tuple(arg.to(device) for arg in args)
+
 # TODO: add warmap
 # TODO: add gradient accumulation
-for idxs_batch, mask_batch, attention_masks_batch, hype_idxs in dl:
-    if idxs_batch.shape[1] > 256:
+for batch in dl:
+    if batch[0].shape[1] > 256:
         continue
+    idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
     model.zero_grad()
     response = model(idxs_batch, mask_batch, attention_masks_batch)
     loss = criterion(response, hype_idxs)
