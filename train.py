@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from pathlib import Path
 
 import torch
@@ -8,14 +11,19 @@ from tensorboardX import SummaryWriter
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
 
-tokenizer_vocab_path = 'sample_data/vocab.txt'
-corpus_path = 'sample_data/tst_corpus.txt'
-hypo_index_path = 'sample_data/tst_index.json'
-train_set_path = 'sample_data/tst_train.json'
+# tokenizer_vocab_path = 'sample_data/vocab.txt'
+# corpus_path = 'sample_data/tst_corpus.txt'
+# hypo_index_path = 'sample_data/tst_index.json'
+# train_set_path = 'sample_data/tst_train.json'
 
-model_path = Path('/home/arcady/data/models/rubert_cased_L-12_H-768_A-12_v2/')
+data_path = Path('/home/hdd/data/hypernym/')
+corpus_path = data_path / 'corpus.news_df-sample.token.txt'
+hypo_index_path = data_path / 'index.train.news_df-sample.json'
+train_set_path = data_path / 'train.cased.json' 
+model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
 model_weights_path = model_path / 'ptrubert.pt'
 config_path = model_path / 'bert_config.json'
+tokenizer_vocab_path = model_path / 'vocab.txt'
 
 tokenizer = BertTokenizer(tokenizer_vocab_path, do_lower_case=False)
 
