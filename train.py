@@ -51,6 +51,8 @@ writer = SummaryWriter()
 # TODO: add warmap
 # TODO: add gradient accumulation
 for idxs_batch, mask_batch, attention_masks_batch, hype_idxs in dl:
+    if idxs_batch.shape[1] > 256:
+        continue
     model.zero_grad()
     response = model(idxs_batch, mask_batch, attention_masks_batch)
     loss = criterion(response, hype_idxs)
