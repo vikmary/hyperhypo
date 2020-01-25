@@ -27,9 +27,10 @@ class HyBert(nn.Module):
         self.tokenizer = tokenizer
         self.hypernym_list = hypernym_list
         embeddings = self.bert.embeddings.word_embeddings.weight.data
-        self.hypernym_embeddings = get_word_embeddings(self.hypernym_list,
-                                                       embeddings.detach(),
-                                                       self.tokenizer)
+        hype_embeddings = get_word_embeddings(self.hypernym_list,
+                                              embeddings.detach(),
+                                              self.tokenizer)
+        self.hypernym_embeddings = torch.nn.Parameter(hype_embeddings)
 
     @staticmethod
     def _read_hypernym_list(hypernym_list_path: Union[str, Path]) -> List[str]:
