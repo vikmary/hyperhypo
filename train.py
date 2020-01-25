@@ -17,9 +17,11 @@ from hybert import HyBert
 # train_set_path = 'sample_data/tst_train.json'
 
 data_path = Path('/home/hdd/data/hypernym/')
-corpus_path = data_path / 'corpus.news_df-sample.token.txt'
-hypo_index_path = data_path / 'index.train.news_df-sample.json'
-train_set_path = data_path / 'train.cased.json' 
+# corpus_path = data_path / 'corpus.news_df-sample.token.txt'
+corpus_path = data_path / 'corpus.wikipedia-ru-2018-sample.token.txt'
+# hypo_index_path = data_path / 'index.train.news_df-sample.json'
+hypo_index_path = data_path / 'index.train.wikipedia-ru-2018-sample.json'
+train_set_path = data_path / 'train.cased.json'
 model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
 model_weights_path = model_path / 'ptrubert.pt'
 config_path = model_path / 'bert_config.json'
