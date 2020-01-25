@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+from itertools import chain
 from pathlib import Path
 from typing import Union, List, Tuple, Optional
 
@@ -49,7 +50,8 @@ class HypoDataset(IterableDataset):
                       f' In index: {hypos_in_index}')
 
             hypo = sample(hypos_in_index, 1)[0]
-            hype = sample(hypes + hype_hypes, 1)[0]
+            all_hypes = list(chain(*(hypes + hype_hypes)))
+            hype = sample(all_hypes, 1)[0]
             hype_idx = self.hypernyn_to_idx[hype]
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
@@ -112,8 +114,9 @@ def get_hypernyms_list_from_train(train_path: Union[Path, str]) -> List[str]:
     train_set = HypoDataset._read_json(train_path)
     hypernyms_set = set()
     for hypos, hypes, hype_hypes in train_set:
-        hypernyms_set.update(hypes + hype_hypes)
-    return list(hypernyms_set)
+        all_hypes = chain(*(hypes + hype_hypes))
+        hypernyms_set.update(all_hypes)
+    return sorted(hypernyms_set)
 
 
 def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch.Tensor]:
