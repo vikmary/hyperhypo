@@ -27,7 +27,8 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         for row in open(fp, 'rt'):
-            senses.append({'content': row.strip()})
+            word = row.split('\t', 1)[0].strip()
+            senses.append({'content': word})
     return senses
 
 
@@ -143,13 +144,12 @@ def get_all_related(synset_id: str,
 
 
 def get_cased(s: str, tokenizer: Callable) -> str:
-    cands = [s, s.upper(), s.title()]
     if ' ' in s:
-        cands.append(s[0].upper() + s[1:])
+        return ' '.join(get_cased(token, tokenizer) for token in s.split())
+    cands = [s, s.upper(), s.title()]
 
     cand_lens = [len(tokenizer(c)) for c in cands]
     min_len = min(cand_lens)
-
     return cands[cand_lens.index(min_len)]
 
 
