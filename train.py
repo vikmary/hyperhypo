@@ -43,7 +43,7 @@ tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
 model = HyBert(bert, tokenizer, hype_list)
 criterion = torch.nn.CrossEntropyLoss()
 # TODO: add option for passing model.bert.parameters to train embeddings
-optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=5e-5)
+optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=3e-5)
 writer = SummaryWriter()
 
 # TODO: add warmap
