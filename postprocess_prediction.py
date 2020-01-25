@@ -30,7 +30,7 @@ def get_prediction(fname: Union[str, Path]) -> List[Tuple[str, List[str]]]:
     return pred_tuples
 
 
-def rerank_predictions(hypernyms: List[str]) -> List[str]:
+def rerank_predictions(hypernyms: List[str], synsets: Dict[str, Dict]) -> List[str]:
     num_old = len(hypernyms)
     hyperhypernyms_d = {h_id: [hh['id']
                                for hh in synsets[h_id].get('hypernyms', [])]
@@ -60,11 +60,11 @@ if __name__ == "__main__":
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     pred_base_name = '.'.join(args.prediction_path.name.split('.')[:-1])
-    fixed_pred_path = args.prediction_path.with_name(pred_base_name + '.fixed.tsv')
-    print(f"Writing fixed predictions to {fixed_pred_path}.")
-    with open(fixed_pred_path, 'wt') as fout:
+    reranked_pred_path = args.prediction_path.with_name(pred_base_name + '.rerank.tsv')
+    print(f"Writing reranked predictions to {reranked_pred_path}.")
+    with open(reranked_pred_path, 'wt') as fout:
         for w_id, hypernyms in get_prediction(args.prediction_path):
-            hypernyms = rerank_predictions(hypernyms)
+            hypernyms = rerank_predictions(hypernyms, synsets)
             for h_id, other in hypernyms:
                 senses = ','.join(s['content'] for s in synsets[h_id]['senses'])
                 fout.write(f'{w_id}\t{h_id}\t{senses}\n')
