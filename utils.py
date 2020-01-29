@@ -144,6 +144,7 @@ def get_all_related(synset_id: str,
 
 
 def get_cased(s: str, tokenizer: Callable) -> str:
+    s = s.lower()
     if ' ' in s:
         return ' '.join(get_cased(token, tokenizer) for token in s.split())
     cands = [s, s.upper(), s.title()]
