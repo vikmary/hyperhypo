@@ -6,12 +6,14 @@ import sys
 import gzip
 import fileinput
 import zipfile
-import unicodedata
 import functools
-import pymorphy2
+import unicodedata
 from pathlib import Path
 from contextlib import contextmanager
-from typing import IO, Union, Optional, List
+from typing import IO, Union, Optional, List, Iterator, Dict
+
+import pymorphy2
+from bs4 import BeautifulSoup
 
 
 def count_lines(fpath: Union[str, Path]) -> int:
@@ -58,13 +60,16 @@ class Sanitizer:
     """
 
     def __init__(self,
-                 filter_diacritical: bool = True,
-                 filter_empty_brackets: bool = False,
+                 filter_stresses: bool = True,
+                 filter_empty_brackets: bool = True,
+                 filter_diacritical: bool = False,
                  replace_nums_with: Optional[str] = None) -> None:
         self.do_filter_diacritical = filter_diacritical
         self.do_filter_empty_brackets = filter_empty_brackets
+        self.do_filter_stresses = filter_stresses
         self.replace_nums_value = replace_nums_with
         self.nums_ptr = re.compile(r'[0-9]')
+        self.stress_ptr = re.compile(r'́')
         self.whitespace_ptr = re.compile(r'\s+')
         self.brackets_ptr = re.compile(r'[\[\(]\s*[\]\)]')
         self.combining_characters = dict.fromkeys([c for c in range(sys.maxunicode)
@@ -72,6 +77,9 @@ class Sanitizer:
 
     def filter_duplicate_whitespaces(self, utterance: str) -> str:
         return self.whitespace_ptr.sub(' ', utterance)
+
+    def filter_stresses(self, utterance: str) -> str:
+        return self.stress_ptr.sub('', utterance)
 
     def filter_diacritical(self, utterance: str) -> str:
         return unicodedata.normalize('NFD', utterance)\
@@ -84,6 +92,8 @@ class Sanitizer:
         return self.brackets_ptr.sub('', utterance)
 
     def __call__(self, utterance: str) -> str:
+        if self.do_filter_stresses:
+            utterance = self.filter_stresses(utterance)
         if self.do_filter_diacritical:
             utterance = self.filter_diacritical(utterance)
         if self.replace_nums_value is not None:
@@ -92,6 +102,28 @@ class Sanitizer:
             utterance = self.filter_empty_brackets(utterance)
         utterance = self.filter_duplicate_whitespaces(utterance)
         return utterance
+
+
+def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
+    """Gets synsets with id as key and senses as values."""
+    synsets = {}
+    for fp in fpaths:
+        sys.stderr.write(f"Parsing {fp}.\n")
+        with open(fp, 'rt') as fin:
+            xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
+        for synset in xml_parser.findAll('synset'):
+            synset_d = synset.attrs
+            synset_id = synset_d.pop('id')
+            if synset_id in synsets:
+                raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
+            # finding child senses
+            synset_d['senses'] = []
+            for sense in synset.findAll('sense'):
+                synset_d['senses'].append({'id': sense.get('id'),
+                                           'content': sense.contents[0]})
+            # adding to dict of synsets
+            synsets[synset_id] = synset_d
+    return synsets
 
 
 class Lemmatizer:
