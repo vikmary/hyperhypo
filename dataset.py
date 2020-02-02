@@ -26,6 +26,7 @@ class HypoDataset(IterableDataset):
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
         self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.hypernym_list = hypernym_list
         self.debug = debug
 
     @classmethod
@@ -42,6 +43,7 @@ class HypoDataset(IterableDataset):
         while True:
             train_ind = randint(0, len(self.train_set) - 1)
             hypos, hypes, hype_hypes = self.train_set[train_ind]
+            hypos = [h.lower() for h in hypos]
             hypos_in_index = [h for h in hypos if h in self.hypo_index]
 
             if not hypos_in_index:
@@ -56,6 +58,8 @@ class HypoDataset(IterableDataset):
             all_hypes = list(chain(*(hypes + hype_hypes)))
             hype = sample(all_hypes, 1)[0]
             hype_idx = self.hypernyn_to_idx[hype]
+            if len(self.hypo_index[hypo]) == 0:
+                continue
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
             sent_toks = ['[CLS]'] + sent_toks + ['[SEP]']
@@ -132,10 +136,17 @@ def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch
 
 
 if __name__ == '__main__':
-    tokenizer_vocab_path = 'sample_data/vocab.txt'
-    corpus_path = 'sample_data/tst_corpus.txt'
-    hypo_index_path = 'sample_data/tst_index.json'
-    train_set_path = 'sample_data/tst_train.json'
+    # tokenizer_vocab_path = 'sample_data/vocab.txt'
+    # corpus_path = 'sample_data/tst_corpus.txt'
+    # hypo_index_path = 'sample_data/tst_index.json'
+    # train_set_path = 'sample_data/tst_train.json'
+    data_path = Path('/home/hdd/data/hypernym/')
+    corpus_path = data_path / 'corpus.wikipedia-ru-2018-sample.token.txt'
+    hypo_index_path = data_path / 'index.train.wikipedia-ru-2018-sample.json'
+    train_set_path = data_path / 'train.cased.json'
+
+    model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
+    tokenizer_vocab_path = model_path / 'vocab.txt'
 
     tokenizer = BertTokenizer(tokenizer_vocab_path, do_lower_case=False)
     hype_list = get_hypernyms_list_from_train(train_set_path)
