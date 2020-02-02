@@ -25,7 +25,7 @@ class HypoDataset(IterableDataset):
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
-        self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.debug = debug
 
     @classmethod
@@ -55,7 +55,7 @@ class HypoDataset(IterableDataset):
             hypo = sample(hypos_in_index, 1)[0]
             all_hypes = list(chain(*(hypes + hype_hypes)))
             hype = sample(all_hypes, 1)[0]
-            hype_idx = self.hypernyn_to_idx[hype]
+            hype_idx = self.hypernym_to_idx[hype]
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
             sent_toks = ['[CLS]'] + sent_toks + ['[SEP]']
