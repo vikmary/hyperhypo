@@ -34,10 +34,14 @@ class HyBert(nn.Module):
 
     @staticmethod
     def _read_hypernym_list(hypernym_list_path: Union[str, Path]) -> List[str]:
-        with open(hypernym_list_path) as handle:
+        print(f"Loading candidates from {hypernym_list_path}.")
+        with open(hypernym_list_path, 'rt') as handle:
             return [line.strip() for line in handle]
 
-    def forward(self, indices_batch: LongTensor, hypo_mask: Tensor, attention_mask: Tensor) -> Tensor:
+    def forward(self,
+                indices_batch: LongTensor,
+                hypo_mask: Tensor,
+                attention_mask: Tensor) -> Tensor:
         h = self.bert(indices_batch, attention_mask=attention_mask)[0]
         m = torch.tensor(hypo_mask).unsqueeze(2)
         hyponym_representations = torch.sum(h * m, 1) / torch.sum(m, 1)
