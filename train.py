@@ -15,7 +15,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def parse_args():
-    default_model_dir = '/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/'
+    # default_model_dir = '/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/'
+    default_model_dir = '/home/hdd/models/rubert_v2/rubert_cased_L-12_H-768_A-12_v2'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--corpus', '-c', type=str, default='news-sample',
