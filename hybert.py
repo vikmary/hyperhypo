@@ -40,8 +40,9 @@ class HyBert(nn.Module):
     def forward(self, indices_batch: LongTensor, hypo_mask: Tensor, attention_mask: Tensor) -> Tensor:
         h = self.bert(indices_batch, attention_mask=attention_mask)[0]
         m = torch.tensor(hypo_mask).unsqueeze(2)
-        hyponym_representations = torch.mean(h * m, 1)
+        hyponym_representations = torch.sum(h * m, 1) / torch.sum(m, 1)
         hypernym_logits = hyponym_representations @ self.hypernym_embeddings.T
+        hypernym_logits = torch.log_softmax(hypernym_logits, 1)
         return hypernym_logits
 
 
