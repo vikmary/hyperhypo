@@ -71,7 +71,8 @@ class HypoDataset(IterableDataset):
             sent_subwords.extend(subtokens)
             subtok_idxs = self.tokenizer.convert_tokens_to_ids(subtokens)
             sent_subword_idxs.extend(subtok_idxs)
-            mask_value = float(n == in_sent_hypo_idx)
+            # NOTE: + 1 because of [CLS] token in the beginning
+            mask_value = float(n == in_sent_hypo_idx + 1)
             sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
         return sent_subword_idxs, sent_hypo_mask
 
