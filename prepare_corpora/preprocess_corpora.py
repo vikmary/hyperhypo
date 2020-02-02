@@ -10,7 +10,8 @@ from tqdm import tqdm
 from rusenttokenize import ru_sent_tokenize
 from rusenttokenize import SHORTENINGS, JOINING_SHORTENINGS, PAIRED_SHORTENINGS
 
-from utils import smart_open, count_lines, extract_zip, Sanitizer, Lemmatizer
+from prepare_corpora.utils import smart_open, count_lines, extract_zip
+from prepare_corpora.utils import Sanitizer, Lemmatizer
 
 
 def parse_args():

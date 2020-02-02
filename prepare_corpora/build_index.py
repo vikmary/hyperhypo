@@ -4,6 +4,7 @@
 import argparse
 import csv
 import json
+import re
 import itertools
 from pathlib import Path
 from typing import List, Tuple, Dict, Iterator, Optional
@@ -13,15 +14,18 @@ from hashedindex import textparser
 import hashedindex
 from tqdm import tqdm
 
-from utils import smart_open, count_lines, Lemmatizer, Sanitizer
+from prepare_corpora.utils import smart_open, count_lines, Lemmatizer, Sanitizer
+from utils import get_wordnet_synsets, get_train_synsets
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data-path', '-d', type=Path,
                         help='path to lemmatized corpora')
-    parser.add_argument('--train-path', '-t', type=Path,
-                        help='path to text file with training data')
+    parser.add_argument('--train-paths', '-t', type=Path, nargs='+',
+                        help='path(s) to text file(s) with training data')
+    parser.add_argument('--wordnet-dir', '-w', type=Path,
+                        help='path to a wordnet directory')
     parser.add_argument('--max-lines', '-l', type=int, default=None,
                         help='take only first l lines of corpus')
     return parser.parse_args()
@@ -39,31 +43,28 @@ def build_index(utterances: Iterator[str],
     return index.items()
 
 
-def read_training_data(fp: Path) -> List[Tuple[str, str]]:
-    reader = csv.reader(open(fp, 'rt'), delimiter='\t')
-    data = []
-    for row in reader:
-        if len(row) != 2:
-            raise ValueError(f'input file in the wrong format. Row {row} is invalid.')
-        data.append(row)
-    return data
-
-
 if __name__ == "__main__":
     args = parse_args()
 
-    sanitizer = Sanitizer(filter_diacritical=True, filter_empty_brackets=True)
+    sanitizer = Sanitizer(filter_stresses=True, filter_empty_brackets=True)
+    tokenizer = re.compile(r"[\w']+|[^\w ]")
     lemmatizer = Lemmatizer()
 
-    train_data = read_training_data(args.train_path)
-    hyponyms = []
-    for hypo, hyper in train_data:
-        hypo = lemmatizer(sanitizer(hypo))
-        if hypo and (len(hypo.split()) == 1):
-            hyponyms.append(hypo)
-        else:
-            print(f"Skipping hyponym {hypo}, because it contains more or less than"
-                  f" one token.")
+    senses = frozenset(lemmatizer(sanitizer(sense['content'].lower()))
+                       for synset in get_wordnet_synsets(args.wordnet_dir
+                                                         .glob('synsets.*')).values()
+                       for sense in synset['senses'])
+
+    hyponyms = set()
+    for synset_id, synset in get_train_synsets(args.train_paths).items():
+        for sense in synset['senses']:
+            hypo = sanitizer(sense['content'].lower())
+            if hypo and (len(tokenizer.findall(hypo)) == 1):
+                hyponyms.add(lemmatizer(hypo))
+            else:
+                print(f"Skipping hyponym {hypo}, because it contains more or less than"
+                      f" one token.")
+    hyponyms = frozenset(hyponyms)
 
     if args.max_lines is None:
         print(f"Counting number of input lines.")
@@ -81,7 +82,8 @@ if __name__ == "__main__":
 
     out_path = args.data_path.with_name('index.full.' + base_name + '.json')
     print(f"Writing full index to {out_path}.")
-    json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
+    json.dump({token: list(idxs) for token, idxs in inverted_index.items()
+               if token in senses},
               open(out_path, 'wt'), indent=2, ensure_ascii=False)
 
     # dumping index for train hyponyms only

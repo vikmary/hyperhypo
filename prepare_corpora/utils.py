@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from typing import IO, Union, Optional, List, Iterator, Dict
 
 import pymorphy2
-from bs4 import BeautifulSoup
 
 
 def count_lines(fpath: Union[str, Path]) -> int:
@@ -102,28 +101,6 @@ class Sanitizer:
             utterance = self.filter_empty_brackets(utterance)
         utterance = self.filter_duplicate_whitespaces(utterance)
         return utterance
-
-
-def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
-    """Gets synsets with id as key and senses as values."""
-    synsets = {}
-    for fp in fpaths:
-        sys.stderr.write(f"Parsing {fp}.\n")
-        with open(fp, 'rt') as fin:
-            xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
-        for synset in xml_parser.findAll('synset'):
-            synset_d = synset.attrs
-            synset_id = synset_d.pop('id')
-            if synset_id in synsets:
-                raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
-            # finding child senses
-            synset_d['senses'] = []
-            for sense in synset.findAll('sense'):
-                synset_d['senses'].append({'id': sense.get('id'),
-                                           'content': sense.contents[0]})
-            # adding to dict of synsets
-            synsets[synset_id] = synset_d
-    return synsets
 
 
 class Lemmatizer:
