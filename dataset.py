@@ -25,7 +25,7 @@ class HypoDataset(IterableDataset):
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
-        self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
         self.debug = debug
 
