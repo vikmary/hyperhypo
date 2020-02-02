@@ -58,6 +58,7 @@ class HypoDataset(IterableDataset):
             hype_idx = self.hypernyn_to_idx[hype]
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
+            sent_toks = ['[CLS]'] + sent_toks + ['[SEP]']
             subword_idxs, hypo_mask = self._get_indices_and_masks(sent_toks, in_sent_hypo_idx)
             yield subword_idxs, hypo_mask, hype_idx
 
@@ -149,9 +150,7 @@ if __name__ == '__main__':
           f'Hypo Mask: {sentence_hypo_mask}')
     print('Note that dataset samples randomly form all possible samples')
 
-
     print('=' * 20)
-
 
     dl = DataLoader(ds, batch_size=2, collate_fn=batch_collate)
     idxs_batch, mask_batch, attention_masks_batch, hype_idxs = next(iter(dl))
