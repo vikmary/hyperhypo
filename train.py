@@ -14,6 +14,10 @@ from hybert import HyBert
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+def to_device(*args):
+    return tuple(arg.to(device) for arg in args)
+
+
 def parse_args():
     # default_model_dir = '/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/'
     default_model_dir = '/home/hdd/models/rubert_v2/rubert_cased_L-12_H-768_A-12_v2'
@@ -86,18 +90,13 @@ def main():
     # TODO: add option for passing model.bert.parameters to train embeddings
     optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=2e-5)
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
-                                                  1e-6,
+                                                  1e-5,
                                                   3e-5,
                                                   step_size_up=10000,
                                                   step_size_down=100000,
                                                   cycle_momentum=False)
 
     writer = SummaryWriter()
-
-
-    def to_device(*args):
-        return tuple(arg.to(device) for arg in args)
-
 
     # TODO: add warmap
     # TODO: add gradient accumulation
@@ -117,8 +116,9 @@ def main():
         loss = criterion(response, hype_idxs)
         loss = torch.mean(loss)
         loss.backward()
+        print(loss)
+        running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
         writer.add_scalar('log-loss', loss, count)
-
         if count % save_every == save_every - 1:
             if running_loss < best_loss:
                 torch.save(model.parameters(), 'models/checkpoint.pt')
