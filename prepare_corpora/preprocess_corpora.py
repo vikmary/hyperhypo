@@ -10,7 +10,8 @@ from tqdm import tqdm
 from rusenttokenize import ru_sent_tokenize
 from rusenttokenize import SHORTENINGS, JOINING_SHORTENINGS, PAIRED_SHORTENINGS
 
-from utils import smart_open, count_lines, extract_zip, Sanitizer, Lemmatizer
+from prepare_corpora.utils import smart_open, count_lines, extract_zip
+from prepare_corpora.utils import Sanitizer, Lemmatizer
 
 
 def parse_args():
@@ -32,7 +33,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     tokenizer = re.compile(r"[\w']+|[^\w ]")
-    sanitizer = Sanitizer(filter_diacritical=True, filter_empty_brackets=True)
+    sanitizer = Sanitizer(filter_stresses=True, filter_empty_brackets=True)
     lemmatizer = Lemmatizer()
 
     # extract zip files
@@ -51,6 +52,8 @@ if __name__ == "__main__":
     pbar = tqdm(total=num_lines, mininterval=10.)
 
     base_name = args.data_path.name.split('.')[0]
+    if args.max_lines is not None:
+        base_name += f'-head-{args.max_lines}'
     tokenized_outpath = args.data_path.with_name('corpus.' + base_name +
                                                  '.token.txt.gz')
     lemmatized_outpath = args.data_path.with_name(base_name + '.lemma.txt.gz')
