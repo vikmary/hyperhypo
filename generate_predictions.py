@@ -65,12 +65,20 @@ def predict_with_hybert(model: HyBert,
 def score_synsets(hypernym_preds: List[Tuple[str, float]],
                   synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
-                  k: int = 20) -> List[Tuple[str, float]]:
+                  k: int = 20, 
+                  score_hypernym_synsets: bool = False,
+                  wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
     synset_scores = defaultdict(list)
     for hyper, h_score in hypernym_preds:
-        for h_synset in synsets[hyper]:
+        cand_synsets = synsets[hyper]
+        if score_hypernym_synsets:
+            cand_synsets = [h_s['id']
+                            for s in cand_synsets
+                            for h_s in wordnet_synsets[s].get('hypernyms', [])]
+            cand_synsets = cand_synsets or synsets[hyper]
+        for h_synset in cand_synsets:
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
             synset_scores[h_synset].append(h_score)
@@ -162,8 +170,12 @@ if __name__ == "__main__":
             random_context, pos = sample(contexts, 1)[0]
             print(f"Random context ({word}) = {random_context}, pos = {pos}")
             pred_hypernyms = predict_with_hybert(model, random_context, pos)
-            print(f"pred hypernyms: {pred_hypernyms[:2]}")
-            pred_synsets = score_synsets(pred_hypernyms, candidates, pos=args.pos)
+            print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
+            pred_synsets = score_synsets(pred_hypernyms,
+                                         candidates,
+                                         pos=args.pos,
+                                         wordnet_synsets=synsets,
+                                         score_hypernym_synsets=True)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
