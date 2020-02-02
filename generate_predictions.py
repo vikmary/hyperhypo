@@ -15,6 +15,7 @@ from tqdm import tqdm
 from transformers import BertConfig, BertModel, BertTokenizer
 
 from hybert import HyBert
+from dataset import HypoDataset
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
 
 
@@ -40,18 +41,20 @@ def parse_args():
 
 
 def predict_with_hybert(model: HyBert,
-                        context: str,
+                        context: List[str],
                         hyponym_pos: int,
-                        k: int = -1,
+                        k: int = 1000,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
-    tokens = model.tokenizer.tokenize(context)
-    token_idxs = torch.tensor([model.tokenizer.convert_tokens_to_ids(tokens)])
-    hyponym_mask = torch.zeros_like(token_idxs, dtype=torch.float)
-    hyponym_mask[0, hyponym_pos] = 1.0
-    attention_mask = torch.ones_like(token_idxs, dtype=torch.float)
-    hypernym_logits = model(token_idxs, hyponym_mask, attention_mask).detach().numpy()[0]
+    subtoken_idxs, hyponym_mask = [], []
+    for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
+        subtokens = model.tokenizer.tokenize(token)
+        subtoken_idxs.extend(model.tokenizer.convert_tokens_to_ids(subtokens))
+        hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
+    batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
+
+    hypernym_logits = model(*batch).detach().numpy()[0]
     if metric == 'cosine':
         # TODO: try cosine here
         raise NotImplementedError()
@@ -106,12 +109,12 @@ class CorpusIndexed:
         if word not in self.idx:
             print(f"Warning: word '{word}' not in index.", file=sys.stderr)
             return []
-        sents = ((self.corpus[sent_idx], pos) for sent_idx, pos in self.idx[word])
+        sents = ((self.corpus[sent_idx].split(), pos) for sent_idx, pos in self.idx[word])
         if max_num_tokens is not None:
-            sents = list(filter(lambda s: len(s[0].split()) < max_num_tokens, sents))
+            sents = list(filter(lambda s_pos: len(s_pos[0]) < max_num_tokens, sents))
             if not sents:
                 w_size = max_num_tokens // 2
-                sents = ((' '.join(self.corpus[s_id].split()[pos - w_size: pos + w_size]),
+                sents = ((self.corpus[s_id].split()[pos - w_size: pos + w_size],
                           w_size - max(w_size - pos, 0))
                          for s_id, pos in self.idx[word])
         return list(sents)
