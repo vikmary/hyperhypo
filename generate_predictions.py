@@ -112,7 +112,7 @@ class CorpusIndexed:
             if not sents:
                 w_size = max_num_tokens // 2
                 sents = ((' '.join(self.corpus[s_id].split()[pos - w_size: pos + w_size]),
-                          pos)
+                          w_size - max(w_size - pos, 0))
                          for s_id, pos in self.idx[word])
         return list(sents)
 
