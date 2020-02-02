@@ -16,6 +16,7 @@ from transformers import BertConfig, BertModel, BertTokenizer
 
 from hybert import HyBert
 from dataset import HypoDataset
+from train import device, to_device
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
 
 
@@ -54,7 +55,7 @@ def predict_with_hybert(model: HyBert,
         hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
     batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
 
-    hypernym_logits = model(*batch).detach().numpy()[0]
+    hypernym_logits = model(*to_device(batch)).detach().numpy()[0]
     if metric == 'cosine':
         # TODO: try cosine here
         raise NotImplementedError()
@@ -147,6 +148,7 @@ if __name__ == "__main__":
 
     candidates = load_candidates(args.candidates)
     model = HyBert(bert, tokenizer, list(candidates.keys()))
+    model.to(device)
 
     # get corpus with contexts and it's index
     corpus = CorpusIndexed(args.corpus_path)
