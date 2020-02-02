@@ -57,7 +57,7 @@ class HypoDataset(IterableDataset):
             hypo = sample(hypos_in_index, 1)[0]
             all_hypes = list(chain(*(hypes + hype_hypes)))
             hype = sample(all_hypes, 1)[0]
-            hype_idx = self.hypernyn_to_idx[hype]
+            hype_idx = self.hypernym_to_idx[hype]
             if len(self.hypo_index[hypo]) == 0:
                 continue
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
