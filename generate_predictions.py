@@ -15,6 +15,7 @@ from tqdm import tqdm
 from transformers import BertConfig, BertModel, BertTokenizer
 
 from hybert import HyBert
+from dataset import HypoDataset
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
 
 
@@ -40,18 +41,20 @@ def parse_args():
 
 
 def predict_with_hybert(model: HyBert,
-                        context: str,
+                        context: List[str],
                         hyponym_pos: int,
-                        k: int = -1,
+                        k: int = 1000,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
-    tokens = model.tokenizer.tokenize(context)
-    token_idxs = torch.tensor([model.tokenizer.convert_tokens_to_ids(tokens)])
-    hyponym_mask = torch.zeros_like(token_idxs, dtype=torch.float)
-    hyponym_mask[0, hyponym_pos] = 1.0
-    attention_mask = torch.ones_like(token_idxs, dtype=torch.float)
-    hypernym_logits = model(token_idxs, hyponym_mask, attention_mask).detach().numpy()[0]
+    subtoken_idxs, hyponym_mask = [], []
+    for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
+        subtokens = model.tokenizer.tokenize(token)
+        subtoken_idxs.extend(model.tokenizer.convert_tokens_to_ids(subtokens))
+        hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
+    batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
+
+    hypernym_logits = model(*batch).detach().numpy()[0]
     if metric == 'cosine':
         # TODO: try cosine here
         raise NotImplementedError()
@@ -62,12 +65,20 @@ def predict_with_hybert(model: HyBert,
 def score_synsets(hypernym_preds: List[Tuple[str, float]],
                   synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
-                  k: int = 20) -> List[Tuple[str, float]]:
+                  k: int = 20, 
+                  score_hypernym_synsets: bool = False,
+                  wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
     synset_scores = defaultdict(list)
     for hyper, h_score in hypernym_preds:
-        for h_synset in synsets[hyper]:
+        cand_synsets = synsets[hyper]
+        if score_hypernym_synsets:
+            cand_synsets = [h_s['id']
+                            for s in cand_synsets
+                            for h_s in wordnet_synsets[s].get('hypernyms', [])]
+            cand_synsets = cand_synsets or synsets[hyper]
+        for h_synset in cand_synsets:
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
             synset_scores[h_synset].append(h_score)
@@ -106,12 +117,12 @@ class CorpusIndexed:
         if word not in self.idx:
             print(f"Warning: word '{word}' not in index.", file=sys.stderr)
             return []
-        sents = ((self.corpus[sent_idx], pos) for sent_idx, pos in self.idx[word])
+        sents = ((self.corpus[sent_idx].split(), pos) for sent_idx, pos in self.idx[word])
         if max_num_tokens is not None:
-            sents = list(filter(lambda s: len(s[0].split()) < max_num_tokens, sents))
+            sents = list(filter(lambda s_pos: len(s_pos[0]) < max_num_tokens, sents))
             if not sents:
                 w_size = max_num_tokens // 2
-                sents = ((' '.join(self.corpus[s_id].split()[pos - w_size: pos + w_size]),
+                sents = ((self.corpus[s_id].split()[pos - w_size: pos + w_size],
                           w_size - max(w_size - pos, 0))
                          for s_id, pos in self.idx[word])
         return list(sents)
@@ -159,8 +170,12 @@ if __name__ == "__main__":
             random_context, pos = sample(contexts, 1)[0]
             print(f"Random context ({word}) = {random_context}, pos = {pos}")
             pred_hypernyms = predict_with_hybert(model, random_context, pos)
-            print(f"pred hypernyms: {pred_hypernyms[:2]}")
-            pred_synsets = score_synsets(pred_hypernyms, candidates, pos=args.pos)
+            print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
+            pred_synsets = score_synsets(pred_hypernyms,
+                                         candidates,
+                                         pos=args.pos,
+                                         wordnet_synsets=synsets,
+                                         score_hypernym_synsets=True)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])

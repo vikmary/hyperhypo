@@ -4,10 +4,10 @@
 import json
 from itertools import chain
 from pathlib import Path
+from random import randint, sample
 from typing import Union, List, Tuple, Optional
 
 import torch
-from random import randint, sample
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import IterableDataset
 from transformers import BertTokenizer
