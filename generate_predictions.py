@@ -66,7 +66,7 @@ def predict_with_hybert(model: HyBert,
 def score_synsets(hypernym_preds: List[Tuple[str, float]],
                   synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
-                  k: int = 20, 
+                  k: int = 20,
                   score_hypernym_synsets: bool = False,
                   wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
@@ -77,8 +77,7 @@ def score_synsets(hypernym_preds: List[Tuple[str, float]],
         if score_hypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
-                            for h_s in wordnet_synsets[s].get('hypernyms', [])]
-            cand_synsets = cand_synsets or synsets[hyper]
+                            for h_s in wordnet_synsets[s].get('hypernyms', [s])]
         for h_synset in cand_synsets:
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
