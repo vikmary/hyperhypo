@@ -55,7 +55,7 @@ def predict_with_hybert(model: HyBert,
         hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
     batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
 
-    hypernym_logits = model(*to_device(batch)).detach().numpy()[0]
+    hypernym_logits = model(*to_device(*batch)).cpu().detach().numpy()[0]
     if metric == 'cosine':
         # TODO: try cosine here
         raise NotImplementedError()
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
         for word in tqdm(test_senses):
-            contexts = corpus.get_contexts(word, max_num_tokens=300)
+            contexts = corpus.get_contexts(word, max_num_tokens=250)
             if not contexts:
                 n_skipped += 1
                 continue
