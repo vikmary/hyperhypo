@@ -34,6 +34,7 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key, senses and hyperonyms as values."""
+    # TODO: add new function enrich_with_wordnet_senses
     synsets = {}
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")

@@ -8,6 +8,7 @@ from pathlib import Path
 from random import sample
 from collections import defaultdict
 from datetime import datetime
+from itertools import repeat
 from typing import List, Dict, Union, Tuple, Optional
 
 import torch
@@ -18,25 +19,32 @@ from hybert import HyBert
 from dataset import HypoDataset
 from train import device, to_device
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
+from postprocess_prediction import get_prediction
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data-path', '-d', type=Path,
+    # Test words parameters
+    parser.add_argument('--data-path', '-d', type=Path, required=True,
                         help='dataset path to get predictions for')
     parser.add_argument('--pos', type=str, default=None,
                         help='filter hypernyms of only this type of pos')
     parser.add_argument('--is-train-format', '-T', action='store_true',
                         help='whether input data is in train format or in test format')
-    parser.add_argument('--wordnet-dir', '-w', type=Path,
+    # Data required for making predictions
+    parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
                         help='path to a wordnet directory')
-    parser.add_argument('--corpus-path', '-t', type=Path,
+    parser.add_argument('--corpus-path', '-t', type=Path, required=True,
                         help='path to a corpus file, index file should also be prebuilt')
-    parser.add_argument('--bert-model-dir', '-b', type=Path,
-                        help='path to a trained bert directory')
-    parser.add_argument('--candidates', '-c', type=Path,
+    parser.add_argument('--candidates', '-c', type=Path, required=True,
                         help='path to a list of candidates')
-    parser.add_argument('--output_dir', '-o', type=Path,
+    parser.add_argument('--fallback-prediction-path', '-f', type=Path,
+                        help='file with predictions to fallback to')
+    # Model path
+    parser.add_argument('--bert-model-dir', '-b', type=Path, required=True,
+                        help='path to a trained bert directory')
+    # Ouput path
+    parser.add_argument('--output_dir', '-o', type=Path, required=True,
                         help='output directory for labels prepared for scoring')
     return parser.parse_args()
 
@@ -64,7 +72,7 @@ def predict_with_hybert(model: HyBert,
 
 
 def score_synsets(hypernym_preds: List[Tuple[str, float]],
-                  synsets: Dict[str, List[str]],
+                  hypernym2synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
                   k: int = 20,
                   score_hypernym_synsets: bool = False,
@@ -73,11 +81,11 @@ def score_synsets(hypernym_preds: List[Tuple[str, float]],
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
     synset_scores = defaultdict(list)
     for hyper, h_score in hypernym_preds:
-        cand_synsets = synsets[hyper]
+        cand_synsets = hypernym2synsets[hyper]
         if score_hypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
-                            for h_s in wordnet_synsets[s].get('hypernyms', [s])]
+                            for h_s in wordnet_synsets[s].get('hypernyms', [{'id': s}])]
         for h_synset in cand_synsets:
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
@@ -139,6 +147,12 @@ if __name__ == "__main__":
         test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
 
+    # load fallback predictions if needed
+    fallback_preds = []
+    if args.fallback_prediction_path:
+        fallback_preds = {w: preds
+                          for w, preds in get_prediction(args.fallback_prediction_path)}
+
     # load Bert model
     config = BertConfig.from_pretrained(args.bert_model_dir / 'bert_config.json')
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_dir, do_lower_case=False)
@@ -167,18 +181,24 @@ if __name__ == "__main__":
             contexts = corpus.get_contexts(word, max_num_tokens=250)
             if not contexts:
                 n_skipped += 1
-                continue
-            random_context, pos = sample(contexts, 1)[0]
-            print(f"Random context ({word}) = {random_context}, pos = {pos}")
-            pred_hypernyms = predict_with_hybert(model, random_context, pos)
-            print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
-            pred_synsets = score_synsets(pred_hypernyms,
-                                         candidates,
-                                         pos=args.pos,
-                                         wordnet_synsets=synsets,
-                                         score_hypernym_synsets=True)
+                if word not in fallback_preds:
+                    pred_synsets = [(sample(synsets.keys(), 1)[0], 'nan')]
+                    if not fallback_preds:
+                        print(f"Warning: {word} not in fallback_predictions")
+                else:
+                    pred_synsets = zip(fallback_preds[word], repeat('nan'))
+            else:
+                random_context, pos = sample(contexts, 1)[0]
+                print(f"Random context ({word}) = {random_context}, pos = {pos}")
+                pred_hypernyms = predict_with_hybert(model, random_context, pos)
+                print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
+                pred_synsets = score_synsets(pred_hypernyms,
+                                             candidates,
+                                             pos=args.pos,
+                                             wordnet_synsets=synsets,
+                                             score_hypernym_synsets=True)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
                 f_pred.write(f'{word}\t{s_id}\t{score}\t{h_senses_str}\n')
-    print(f"Skipped {n_skipped}/{len(test_senses)} ({n_skipped/len(test_senses):.2}) test words.")
+    print(f"Skipped {n_skipped}/{len(test_senses)} ({n_skipped/len(test_senses)*100:.0} %) test words.")
