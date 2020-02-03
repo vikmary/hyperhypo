@@ -200,5 +200,5 @@ if __name__ == "__main__":
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
-                f_pred.write(f'{word}\t{s_id}\t{score}\t{h_senses_str}\n')
+                f_pred.write(f'{word.upper()}\t{s_id}\t{score}\t{h_senses_str}\n')
     print(f"Skipped {n_skipped}/{len(test_senses)} ({n_skipped/len(test_senses)*100:.0} %) test words.")
