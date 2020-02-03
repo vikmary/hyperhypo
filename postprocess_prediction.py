@@ -3,7 +3,7 @@
 
 import argparse
 from pathlib import Path
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Dict
 
 from utils import get_wordnet_synsets, enrich_with_wordnet_relations
 
