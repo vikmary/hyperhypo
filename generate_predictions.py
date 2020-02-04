@@ -166,7 +166,9 @@ if __name__ == "__main__":
     model.to(device)
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")
-        model.load_state_dict(torch.load(args.load_checkpoint))
+        model_state = model.state_dict()
+        model_state.update({k: v for k, v in torch.load(args.load_checkpoint).items()
+                            if k != 'hypernym_embeddings'})
     else:
         print(f"Initializing Hybert from ruBert.")
     model.eval()
