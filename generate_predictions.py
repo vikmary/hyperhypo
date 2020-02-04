@@ -19,6 +19,7 @@ from hybert import HyBert
 from dataset import HypoDataset
 from train import device, to_device
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
+from prepare_corpora.utils import smart_open
 from postprocess_prediction import get_prediction
 
 
@@ -34,8 +35,9 @@ def parse_args():
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
                         help='path to a wordnet directory')
-    parser.add_argument('--corpus-path', '-t', type=Path, required=True,
-                        help='path to a corpus file, index file should also be prebuilt')
+    parser.add_argument('--index-path', '-i', type=Path, required=True,
+                        help='path to an index file,'
+                        ' corpus with tokenized text should also be prebuilt')
     parser.add_argument('--candidates', '-c', type=Path, required=True,
                         help='path to a list of candidates')
     parser.add_argument('--fallback-prediction-path', '-f', type=Path,
@@ -54,7 +56,7 @@ def parse_args():
 def predict_with_hybert(model: HyBert,
                         context: List[str],
                         hyponym_pos: int,
-                        k: int = 1000,
+                        k: int = 100,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
@@ -77,14 +79,14 @@ def score_synsets(hypernym_preds: List[Tuple[str, float]],
                   hypernym2synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
                   k: int = 20,
-                  score_hypernym_synsets: bool = False,
+                  score_hyperhypernym_synsets: bool = False,
                   wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
     synset_scores = defaultdict(list)
     for hyper, h_score in hypernym_preds:
         cand_synsets = hypernym2synsets[hyper]
-        if score_hypernym_synsets:
+        if score_hyperhypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
                             for h_s in wordnet_synsets[s].get('hypernyms', [{'id': s}])]
@@ -107,17 +109,28 @@ def load_candidates(fname: Union[str, Path]) -> Dict[str, List[str]]:
 
 
 class CorpusIndexed:
-    def __init__(self, path: Union[str, Path]) -> None:
-        self.path = Path(path)
-        base_name = self.path.name.rsplit('.token')[0][7:]
-        self.index_path = self.path.with_name('index.full.' + base_name + '.json')
-        if not self.index_path.exists():
-            raise RuntimeError(f"index {self.index_path} doesn't exists")
-        if not self.path.exists():
-            raise RuntimeError(f"corpus {self.path} doesn't exists")
+    def __init__(self, index_path: Union[str, Path]) -> None:
+        self.index_path = Path(index_path)
 
-        print(f"Loading corpus from {self.path}.", file=sys.stderr)
-        self.corpus = [ln.strip() for ln in open(self.path, 'rt')]
+        base_name = self.index_path.name.rsplit('.json', 1)[0]
+        base_name = base_name.split('.', 2)[-1]
+        if '-head-' in base_name:
+            base_name, num_sents = base_name.rsplit('-head-', 1)
+            num_sents = int(num_sents)
+        else:
+            num_sents = float('inf')
+        self.corpus_path = Path(self.index_path.with_name('corpus.' + base_name +
+                                                          '.token.txt.gz'))
+        if not self.corpus_path.exists():
+            self.corpus_path = Path(self.index_path.with_name('corpus.' + base_name +
+                                                              '.token.txt'))
+        if not self.corpus_path.exists():
+            raise RuntimeError(f"corpus {self.corpus_path} doesn't exists")
+
+        print(f"Loading corpus from {self.corpus_path}.", file=sys.stderr)
+        self.corpus = [ln.strip()
+                       for i, ln in enumerate(smart_open(self.corpus_path, 'rt'))
+                       if i < num_sents]
         print(f"Loading index from {self.index_path}.", file=sys.stderr)
         self.idx = {w: idxs for w, idxs in json.load(open(self.index_path, 'rt')).items()}
 
@@ -174,7 +187,7 @@ if __name__ == "__main__":
     model.eval()
 
     # get corpus with contexts and it's index
-    corpus = CorpusIndexed(args.corpus_path)
+    corpus = CorpusIndexed(args.index_path)
 
     # generating output fila name
     now = datetime.now()
@@ -203,7 +216,7 @@ if __name__ == "__main__":
                                              candidates,
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
-                                             score_hypernym_synsets=True)
+                                             score_hyperhypernym_synsets=False)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
