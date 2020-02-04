@@ -83,11 +83,11 @@ if __name__ == "__main__":
     # dumping index for train hyponyms only
     hypo_entries = {h: list(inverted_index.get(h, [])) for h in hyponyms}
     num_entries = len(list(itertools.chain(*hypo_entries.values())))
-    print(f"Found {num_entries} hyponym entries,"
-          f" {num_entries / len(hypo_entries):.3} per hyponym.")
+    print(f"Found {num_entries} hyponym mentions,"
+          f" {int(num_entries / len(hypo_entries))} per hyponym on average.")
     n_absent = sum(bool(not idxs) for hypo, idxs in hypo_entries.items())
     print(f"Haven't found context for {n_absent}/{len(hypo_entries)}"
-          f" ({int(n_absent/len(hypo_entries) * 100)} %) train hyponyms.")
+          f" ({int(n_absent/len(hypo_entries) * 100)}%) train hyponyms.")
 
     out_path = args.data_path.with_name('index.train.' + base_name + '.json')
     print(f"Writing training index to {out_path}.")
