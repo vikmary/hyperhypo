@@ -15,7 +15,7 @@ import hashedindex
 from tqdm import tqdm
 
 from prepare_corpora.utils import smart_open, count_lines, Lemmatizer, Sanitizer
-from utils import get_wordnet_synsets, get_train_synsets
+from utils import get_train_synsets
 
 
 def parse_args():
@@ -24,8 +24,6 @@ def parse_args():
                         help='path to lemmatized corpora')
     parser.add_argument('--train-paths', '-t', type=Path, nargs='+',
                         help='path(s) to text file(s) with training data')
-    parser.add_argument('--wordnet-dir', '-w', type=Path,
-                        help='path to a wordnet directory')
     parser.add_argument('--max-lines', '-l', type=int, default=None,
                         help='take only first l lines of corpus')
     return parser.parse_args()
@@ -49,11 +47,6 @@ if __name__ == "__main__":
     sanitizer = Sanitizer(filter_stresses=True, filter_empty_brackets=True)
     tokenizer = re.compile(r"[\w']+|[^\w ]")
     lemmatizer = Lemmatizer()
-
-    senses = frozenset(lemmatizer(sanitizer(sense['content'].lower()))
-                       for synset in get_wordnet_synsets(args.wordnet_dir
-                                                         .glob('synsets.*')).values()
-                       for sense in synset['senses'])
 
     hyponyms = set()
     for synset_id, synset in get_train_synsets(args.train_paths).items():
@@ -82,15 +75,19 @@ if __name__ == "__main__":
 
     out_path = args.data_path.with_name('index.full.' + base_name + '.json')
     print(f"Writing full index to {out_path}.")
-    json.dump({token: list(idxs) for token, idxs in inverted_index.items()
-               if token in senses},
-              open(out_path, 'wt'), indent=2, ensure_ascii=False)
+    json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
+              open(out_path, 'wt'),
+              indent=2,
+              ensure_ascii=False)
 
     # dumping index for train hyponyms only
     hypo_entries = {h: list(inverted_index.get(h, [])) for h in hyponyms}
     num_entries = len(list(itertools.chain(*hypo_entries.values())))
     print(f"Found {num_entries} hyponym entries,"
           f" {num_entries / len(hypo_entries):.3} per hyponym.")
+    n_absent = sum(bool(not idxs) for hypo, idxs in hypo_entries.items())
+    print(f"Haven't found context for {n_absent}/{len(hypo_entries)}"
+          f" ({int(n_absent/len(hypo_entries) * 100)} %) train hyponyms.")
 
     out_path = args.data_path.with_name('index.train.' + base_name + '.json')
     print(f"Writing training index to {out_path}.")

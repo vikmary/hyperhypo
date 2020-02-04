@@ -43,6 +43,8 @@ def parse_args():
     # Model path
     parser.add_argument('--bert-model-dir', '-b', type=Path, required=True,
                         help='path to a trained bert directory')
+    parser.add_argument('--load-checkpoint', '-l', type=Path,
+                        help='path to a pytorch checkpoint')
     # Ouput path
     parser.add_argument('--output_dir', '-o', type=Path, required=True,
                         help='output directory for labels prepared for scoring')
@@ -162,17 +164,20 @@ if __name__ == "__main__":
     candidates = load_candidates(args.candidates)
     model = HyBert(bert, tokenizer, list(candidates.keys()))
     model.to(device)
+    if args.load_checkpoint:
+        print(f"Loading HyBert from {args.load_checkpoint}.")
+        model.load_state_dict(torch.load(args.load_checkpoint))
+    else:
+        print(f"Initializing Hybert from ruBert.")
+    model.eval()
 
     # get corpus with contexts and it's index
     corpus = CorpusIndexed(args.corpus_path)
 
     # generating output fila name
-    data_base_name = args.data_path.name
-    out_pred_path = args.output_dir / ('bert.' + data_base_name + '_pred.tsv')
-    if out_pred_path.exists():
-        now = datetime.now()
-        out_pred_path = args.output_dir / ('bert.' + data_base_name +
-                                           f'_pred_d{now.strftime("%Y%m%d_%H:%M")}.tsv')
+    now = datetime.now()
+    out_pred_path = args.output_dir / ('bert.' + args.data_path.name.rstrip('.tsv') +
+                                       f'_pred_d{now.strftime("%Y%m%d_%H:%M")}.tsv')
     print(f"Writing predictions to {out_pred_path}.")
 
     n_skipped = 0
@@ -201,4 +206,6 @@ if __name__ == "__main__":
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
                 f_pred.write(f'{word.upper()}\t{s_id}\t{score}\t{h_senses_str}\n')
-    print(f"Skipped {n_skipped}/{len(test_senses)} ({n_skipped/len(test_senses)*100:.0} %) test words.")
+    print(f"Wrote predictions to {out_pred_path}.")
+    print(f"Skipped {n_skipped}/{len(test_senses)}"
+          f" ({int(n_skipped/len(test_senses) * 100)} %) test words.")
