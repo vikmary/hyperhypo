@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import json
+import ijson
 import re
 import argparse
 from pathlib import Path
@@ -133,8 +133,8 @@ class CorpusIndexed:
         if not self.corpus_path.exists():
             raise RuntimeError(f"corpus {self.corpus_path} doesn't exists")
 
-        self.corpus = self.load_corpus(self.corpus_path, num_sents)
         self.idx = self.load_index(self.index_path, self.vocab)
+        self.corpus = self.load_corpus(self.corpus_path, num_sents)
 
     @classmethod
     def load_corpus(cls,
@@ -152,9 +152,10 @@ class CorpusIndexed:
         index = hashedindex.HashedIndex()
         if vocab is not None:
             print(f"Will load only {len(vocab)} lemmas present in a vocab.")
-        for lemma, idxs in json.load(open(path, 'rt')).items():
+        for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
             if not vocab or (lemma in vocab):
-                index.add_term_occurence(lemma, idxs)
+                for idx in idxs:
+                    index.add_term_occurrence(lemma, tuple(idx))
         return index
 
     def get_contexts(self,
@@ -191,6 +192,10 @@ if __name__ == "__main__":
     test_lemmas = [' '.join(lemmatizer(t)
                             for t in tokenizer.findall(sanitizer(s).lower()))
                    for s in test_senses]
+
+    # get corpus with contexts and it's index
+    corpus = CorpusIndexed(args.index_path, vocab=test_lemmas)
+
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
 
     # load fallback predictions if needed
@@ -216,9 +221,6 @@ if __name__ == "__main__":
     else:
         print(f"Initializing Hybert from ruBert.")
     model.eval()
-
-    # get corpus with contexts and it's index
-    corpus = CorpusIndexed(args.index_path, vocab=test_lemmas)
 
     # generating output fila name
     now = datetime.now()
