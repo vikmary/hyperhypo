@@ -21,7 +21,7 @@ def get_prediction(fname: Union[str, Path]) -> List[Tuple[str, List[str]]]:
     pred_tuples = []
     with open(fname, 'rt') as fin:
         for ln in fin:
-            hyponym, hypernym, other = ln.lower().split('\t')
+            hyponym, hypernym, other = ln.split('\t')
             other = other.strip()
             if pred_tuples and (pred_tuples[-1][0] == hyponym):
                 pred_tuples[-1][1].append(hypernym)

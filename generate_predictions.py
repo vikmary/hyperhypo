@@ -186,9 +186,9 @@ if __name__ == "__main__":
     # load wordnet and word to get prediction for
     if args.is_train_format:
         test_synsets = get_train_synsets([args.data_path])
-        test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
+        test_senses = [s['content'] for s in synsets2senses(test_synsets)]
     else:
-        test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
+        test_senses = [s['content'] for s in get_test_senses([args.data_path])]
     test_lemmas = [' '.join(lemmatizer(t)
                             for t in tokenizer.findall(sanitizer(s).lower()))
                    for s in test_senses]
