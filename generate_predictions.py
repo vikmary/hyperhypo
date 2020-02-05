@@ -5,11 +5,11 @@ import sys
 import ijson
 import re
 import argparse
+import itertools
 from pathlib import Path
 from random import sample
 from collections import defaultdict
 from datetime import datetime
-from itertools import repeat
 from typing import List, Dict, Union, Tuple, Optional
 
 import hashedindex
@@ -44,11 +44,16 @@ def parse_args():
                         help='path to a list of candidates')
     parser.add_argument('--fallback-prediction-path', '-f', type=Path,
                         help='file with predictions to fallback to')
-    # Model path
+    # Model parameters
     parser.add_argument('--bert-model-dir', '-b', type=Path, required=True,
                         help='path to a trained bert directory')
     parser.add_argument('--load-checkpoint', '-l', type=Path,
                         help='path to a pytorch checkpoint')
+    parser.add_argument('--batch-size', default=1, type=int,
+                        help='batch size for a single test word'
+                        ' (equals number of averaged contexts)')
+    parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
+                        help='metric to use for choosing the best predictions')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
@@ -56,18 +61,20 @@ def parse_args():
 
 
 def predict_with_hybert(model: HyBert,
-                        context: List[str],
-                        hyponym_pos: int,
+                        contexts: List[Tuple[List[str], int]],
                         k: int = 100,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
     subtoken_idxs, hyponym_mask = [], []
-    for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
-        subtokens = model.tokenizer.tokenize(token)
-        subtoken_idxs.extend(model.tokenizer.convert_tokens_to_ids(subtokens))
-        hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
-    batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
+    for context in contexts:
+        subtoken_idxs.append([])
+        hyponym_masks.append([])
+        for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
+            subtokens = model.tokenizer.tokenize(token)
+            subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
+            hyponym_mask[-1].extend([float(i == pos + 1)] * len(subtokens))
+    batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_mask)
 
     # hypernym_repr_t: [batch_size, hidden_size]
     # hypernym_logits_t: [batch_size, vocab_size]
@@ -236,6 +243,8 @@ if __name__ == "__main__":
     else:
         print(f"Initializing Hybert from ruBert.")
     model.eval()
+    print(f"Batch size equals {args.batch_size}.")
+    print(f"Scoring candidates with '{args.metric}' metric.")
 
     # generating output fila name
     now = datetime.now()
@@ -257,12 +266,13 @@ if __name__ == "__main__":
                     if not fallback_preds:
                         print(f"Warning: {word} not in fallback_predictions")
                 else:
-                    pred_synsets = zip(fallback_preds[word], repeat('nan'))
+                    pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
             else:
-                random_context, pos = sample(contexts, 1)[0]
-                print(f"Random context ({word}) = {random_context}, pos = {pos}")
-                pred_hypernyms = predict_with_hybert(model, random_context, pos,
-                                                     metric='cosine')
+                random_contexts = sample(contexts, args.batch_size)
+                print(f"Random context ({word}) = {random_contexts[0]}")
+                pred_hypernyms = predict_with_hybert(model,
+                                                     random_contexts,
+                                                     metric=args.metric)
                 print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
                 pred_synsets = score_synsets(pred_hypernyms,
                                              candidates,
