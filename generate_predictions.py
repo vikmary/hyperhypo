@@ -50,8 +50,8 @@ def parse_args():
     parser.add_argument('--load-checkpoint', '-l', type=Path,
                         help='path to a pytorch checkpoint')
     # Ouput path
-    parser.add_argument('--output_dir', '-o', type=Path, required=True,
-                        help='output directory for labels prepared for scoring')
+    parser.add_argument('--output-prefix', '-o', type=str, required=True,
+                        help='path to a file with it\'s prefix')
     return parser.parse_args()
 
 
@@ -69,13 +69,17 @@ def predict_with_hybert(model: HyBert,
         hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
     batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
 
-    # hypernym_logits_t: [batch_size, vocab_size]
     # hypernym_repr_t: [batch_size, hidden_size]
+    # hypernym_logits_t: [batch_size, vocab_size]
     hypernym_repr_t, hypernym_logits_t = model(*to_device(*batch))
     if metric == 'cosine':
         # dot product of normalized vectors is equivalent to cosine
-        hypernym_logits_t /= model.hypernym_embeddings.norm(dim=1).unsqueeze(0)
-        hypernym_logits_t /= hypernym_repr_t.norm(dim=1).unsqueeze(1)
+        # hypernym_logits_t /= model.hypernym_embeddings.norm(dim=1).unsqueeze(0)
+        # hypernym_logits_t /= hypernym_repr_t.norm(dim=1).unsqueeze(1)
+        hypernym_repr_t /= hypernym_repr_t.norm(dim=1, keepdim=True)
+        hypernym_embeddings_norm_t = model.hypernym_embeddings /\
+            model.hypernym_embeddings.norm(dim=1, keepdim=True)
+        hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
     # hypernym_logits_avg_t: [vocab_size]
     hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
     hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
@@ -235,13 +239,13 @@ if __name__ == "__main__":
 
     # generating output fila name
     now = datetime.now()
-    out_pred_path = args.output_dir / ('bert.' + args.data_path.name.rstrip('.tsv') +
-                                       f'_pred_d{now.strftime("%Y%m%d_%H:%M")}.tsv')
+    out_pred_path = args.output_prefix + '.' + args.data_path.name.rstrip('.tsv') +\
+        f'_pred_d{now.strftime("%Y%m%d_%H:%M")}.tsv'
     print(f"Writing predictions to {out_pred_path}.")
 
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
-        for word, lemma in tqdm(zip(test_senses, test_lemmas)):
+        for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
             if corpus:
                 contexts = corpus.get_contexts(lemma, max_num_tokens=250)
             else:
@@ -258,13 +262,13 @@ if __name__ == "__main__":
                 random_context, pos = sample(contexts, 1)[0]
                 print(f"Random context ({word}) = {random_context}, pos = {pos}")
                 pred_hypernyms = predict_with_hybert(model, random_context, pos,
-                                                     metric='product')
+                                                     metric='cosine')
                 print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
                 pred_synsets = score_synsets(pred_hypernyms,
                                              candidates,
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
-                                             score_hyperhypernym_synsets=True)
+                                             score_hyperhypernym_synsets=False)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
