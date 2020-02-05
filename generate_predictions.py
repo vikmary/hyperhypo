@@ -37,7 +37,7 @@ def parse_args():
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
                         help='path to a wordnet directory')
-    parser.add_argument('--index-path', '-i', type=Path, required=True,
+    parser.add_argument('--index-path', '-i', type=Path,
                         help='path to an index file,'
                         ' corpus with tokenized text should also be prebuilt')
     parser.add_argument('--candidates', '-c', type=Path, required=True,
@@ -69,10 +69,16 @@ def predict_with_hybert(model: HyBert,
         hyponym_mask.extend([float(i == pos + 1)] * len(subtokens))
     batch = HypoDataset.torchify_and_pad([subtoken_idxs], [hyponym_mask])
 
-    hypernym_logits = model(*to_device(*batch)).cpu().detach().numpy()[0]
+    # hypernym_logits_t: [batch_size, vocab_size]
+    # hypernym_repr_t: [batch_size, hidden_size]
+    hypernym_repr_t, hypernym_logits_t = model(*to_device(*batch))
     if metric == 'cosine':
-        # TODO: try cosine here
-        raise NotImplementedError()
+        # dot product of normalized vectors is equivalent to cosine
+        hypernym_logits_t /= model.hypernym_embeddings.norm(dim=1).unsqueeze(0)
+        hypernym_logits_t /= hypernym_repr_t.norm(dim=1).unsqueeze(1)
+    # hypernym_logits_avg_t: [vocab_size]
+    hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
+    hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
     return sorted(zip(model.hypernym_list, hypernym_logits),
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
@@ -194,7 +200,12 @@ if __name__ == "__main__":
                    for s in test_senses]
 
     # get corpus with contexts and it's index
-    corpus = CorpusIndexed(args.index_path, vocab=test_lemmas)
+    if args.index_path is not None:
+        print("Embedding using corpora.")
+        corpus = CorpusIndexed(args.index_path, vocab=test_lemmas)
+    else:
+        print("Embedding words without context.")
+        corpus = None
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
 
@@ -231,7 +242,10 @@ if __name__ == "__main__":
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas)):
-            contexts = corpus.get_contexts(lemma, max_num_tokens=250)
+            if corpus:
+                contexts = corpus.get_contexts(lemma, max_num_tokens=250)
+            else:
+                contexts = [([word.lower()], 0)]
             if not contexts:
                 n_skipped += 1
                 if word not in fallback_preds:
@@ -243,13 +257,14 @@ if __name__ == "__main__":
             else:
                 random_context, pos = sample(contexts, 1)[0]
                 print(f"Random context ({word}) = {random_context}, pos = {pos}")
-                pred_hypernyms = predict_with_hybert(model, random_context, pos)
+                pred_hypernyms = predict_with_hybert(model, random_context, pos,
+                                                     metric='product')
                 print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
                 pred_synsets = score_synsets(pred_hypernyms,
                                              candidates,
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
-                                             score_hyperhypernym_synsets=False)
+                                             score_hyperhypernym_synsets=True)
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
