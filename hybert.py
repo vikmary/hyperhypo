@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-from typing import Union, List
+from typing import Union, List, Tuple
 from pathlib import Path
 
 import torch
@@ -41,17 +41,17 @@ class HyBert(nn.Module):
     def forward(self,
                 indices_batch: LongTensor,
                 hypo_mask: Tensor,
-                attention_mask: Tensor) -> Tensor:
+                attention_mask: Tensor) -> Tuple[Tensor, Tensor]:
         # h: [batch_size, seqlen, hidden_size]
         h = self.bert(indices_batch, attention_mask=attention_mask)[0]
         # m: [batch_size, seqlen, 1]
-        m = torch.tensor(hypo_mask).unsqueeze(2)
+        m = hypo_mask.unsqueeze(2)
         # hyponym_representations: [batch_size, hidden_size]
         hyponym_representations = torch.sum(h * m, 1) / torch.sum(m, 1)
         # hypernym_logits: [batch_size, vocab_size]
         hypernym_logits = hyponym_representations @ self.hypernym_embeddings.T
         hypernym_logits = torch.log_softmax(hypernym_logits, 1)
-        return hypernym_logits
+        return hyponym_representations, hypernym_logits
 
 
 if __name__ == '__main__':
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     token_idxs = torch.tensor([tokenizer.convert_tokens_to_ids(tokens)])
     hyponym_mask = torch.zeros_like(token_idxs, dtype=torch.float)
     hyponym_mask[0, 1] = 1.0
-    hypernym_logits = model(token_idxs, hyponym_mask)
+    _, hypernym_logits = model(token_idxs, hyponym_mask)
     print(f'Subwords: {tokens}\n'
           f'Subword indices [batch_size, seq_len]: {token_idxs}\n'
           f'Hyponym mask [batch_size, seq_len]: {hyponym_mask}\n'

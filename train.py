@@ -112,7 +112,7 @@ def main():
             continue
         idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
         model.zero_grad()
-        response = model(idxs_batch, mask_batch, attention_masks_batch)
+        _, response = model(idxs_batch, mask_batch, attention_masks_batch)
         loss = criterion(response, hype_idxs)
         loss = torch.mean(loss)
         loss.backward()
