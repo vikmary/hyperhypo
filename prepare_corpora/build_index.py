@@ -6,12 +6,10 @@ import csv
 import json
 import re
 import itertools
+import collections
 from pathlib import Path
 from typing import List, Tuple, Dict, Iterator, Optional
-from collections import defaultdict
 
-from hashedindex import textparser
-import hashedindex
 from tqdm import tqdm
 
 from prepare_corpora.utils import smart_open, count_lines, Lemmatizer, Sanitizer
@@ -26,19 +24,32 @@ def parse_args():
                         help='path(s) to text file(s) with training data')
     parser.add_argument('--max-lines', '-l', type=int, default=None,
                         help='take only first l lines of corpus')
+    parser.add_argument('--max-sentences', '-s', type=int, default=300,
+                        help='max sentences for each word in index')
     return parser.parse_args()
 
 
 def build_index(utterances: Iterator[str],
-                max_utterances: int) -> Dict[str, List[Tuple[int, int]]]:
-    index = hashedindex.HashedIndex()
+                max_utterances: int,
+                max_sentences: Optional[int] = None) -> Dict[str, collections.Counter]:
+    # prioritize_with_max_length: int = 200
+    index = {}
 
     for i_u, utter in tqdm(enumerate(utterances), total=max_utterances):
         if i_u >= max_utterances:
             break
-        for i_t, utter_token in enumerate(utter.split()):
-            index.add_term_occurrence(utter_token, (i_u, i_t))
-    return index.items()
+        utter_tokens = utter.split()
+        # TODO: support finding phrases of several words
+        for i_t, utter_token in enumerate(utter_tokens):
+
+            if utter_token not in index:
+                index[utter_token] = collections.Counter()
+            elif max_sentences and (len(index[utter_token]) >= max_sentences):
+                continue
+                # if len(utter_tokens) < prioritize_with_max_length:
+                #     index[utter_token][(i_u, i_t)] += 1
+            index[utter_token][(i_u, i_t)] += 1
+    return index
 
 
 if __name__ == "__main__":
@@ -66,7 +77,9 @@ if __name__ == "__main__":
         num_lines = args.max_lines
 
     with smart_open(args.data_path, 'rt') as fin:
-        inverted_index = build_index(fin, max_utterances=num_lines)
+        inverted_index = build_index(fin,
+                                     max_utterances=num_lines,
+                                     max_sentences=args.max_sentences)
 
     # dumping full index
     base_name = args.data_path.name.split('.')[0]
