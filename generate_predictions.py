@@ -6,9 +6,9 @@ import ijson
 import re
 import argparse
 import itertools
+import collections
 from pathlib import Path
 from random import sample
-from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, Union, Tuple, Optional
 
@@ -66,15 +66,15 @@ def predict_with_hybert(model: HyBert,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
-    subtoken_idxs, hyponym_mask = [], []
-    for context in contexts:
+    subtoken_idxs, hyponym_masks = [], []
+    for context, pos in contexts:
         subtoken_idxs.append([])
         hyponym_masks.append([])
         for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
             subtokens = model.tokenizer.tokenize(token)
             subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
-            hyponym_mask[-1].extend([float(i == pos + 1)] * len(subtokens))
-    batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_mask)
+            hyponym_masks[-1].extend([float(i == pos + 1)] * len(subtokens))
+    batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
 
     # hypernym_repr_t: [batch_size, hidden_size]
     # hypernym_logits_t: [batch_size, vocab_size]
@@ -97,12 +97,15 @@ def predict_with_hybert(model: HyBert,
 def score_synsets(hypernym_preds: List[Tuple[str, float]],
                   hypernym2synsets: Dict[str, List[str]],
                   pos: Optional[str] = None,
+                  by: str = 'max',
                   k: int = 20,
                   score_hyperhypernym_synsets: bool = False,
                   wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
-    synset_scores = defaultdict(list)
+    if by not in ('mean', 'max'):
+        raise ValueError(f'Wrong value for by \'{by}\'')
+    synset_scores = collections.defaultdict(list)
     for hyper, h_score in hypernym_preds:
         cand_synsets = hypernym2synsets[hyper]
         if score_hyperhypernym_synsets:
@@ -113,13 +116,13 @@ def score_synsets(hypernym_preds: List[Tuple[str, float]],
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
             synset_scores[h_synset].append(h_score)
-    synset_mean_scores = {synset: sum(scores)/len(scores)
+    synset_mean_scores = {synset: max(scores) if by == 'max' else sum(scores)/len(scores)
                           for synset, scores in synset_scores.items()}
     return sorted(synset_mean_scores.items(), key=lambda x: x[1], reverse=True)[:k]
 
 
 def load_candidates(fname: Union[str, Path]) -> Dict[str, List[str]]:
-    cands = defaultdict(list)
+    cands = collections.defaultdict(list)
     with open(fname, 'rt') as fin:
         for row in fin:
             cand_word, cand_synset_id = row.split('\t', 2)[:2]
@@ -164,15 +167,22 @@ class CorpusIndexed:
     @classmethod
     def load_index(cls,
                    path: Union[str, Path],
-                   vocab: Optional[List[str]] = None) -> hashedindex.HashedIndex:
+                   vocab: Optional[List[str]] = None) -> Dict[str, collections.Counter]:
         print(f"Loading index from {path}.", file=sys.stderr)
-        index = hashedindex.HashedIndex()
+
+        index = {}
         if vocab is not None:
             print(f"Will load only {len(vocab)} lemmas present in a vocab.")
-        for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
-            if not vocab or (lemma in vocab):
-                for idx in idxs:
-                    index.add_term_occurrence(lemma, tuple(idx))
+            for lemma in vocab:
+                index[lemma] = collections.Counter()
+            for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
+                if lemma in index:
+                    index[lemma].update(map(tuple, idxs))
+        else:
+            for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
+                if lemma not in index:
+                    index[lemma] = collections.Counter()
+                index[lemma].update(map(tuple, idxs))
         return index
 
     def get_contexts(self,
@@ -182,14 +192,14 @@ class CorpusIndexed:
             print(f"Warning: lemma '{lemma}' not in index.", file=sys.stderr)
             return []
         sents = ((self.corpus[sent_idx].split(), pos)
-                 for sent_idx, pos in self.idx.get_documents(lemma))
+                 for sent_idx, pos in self.idx[lemma])
         if max_num_tokens is not None:
             sents = list(filter(lambda s_pos: len(s_pos[0]) < max_num_tokens, sents))
             if not sents:
                 w_size = max_num_tokens // 2
                 sents = ((self.corpus[s_id].split()[pos - w_size: pos + w_size],
                           w_size - max(w_size - pos, 0))
-                         for s_id, pos in self.idx.get_documents(lemma))
+                         for s_id, pos in self.idx[lemma])
         return list(sents)
 
 
@@ -206,6 +216,7 @@ if __name__ == "__main__":
         test_senses = [s['content'] for s in synsets2senses(test_synsets)]
     else:
         test_senses = [s['content'] for s in get_test_senses([args.data_path])]
+    # test_senses = ['ЭПИЛЕПСИЯ', 'ЭЯКУЛЯЦИЯ', 'ЭПОЛЕТ']
     test_lemmas = [' '.join(lemmatizer(t)
                             for t in tokenizer.findall(sanitizer(s).lower()))
                    for s in test_senses]
@@ -255,20 +266,20 @@ if __name__ == "__main__":
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
+            contexts = [([word.lower()], 0)]
             if corpus:
-                contexts = corpus.get_contexts(lemma, max_num_tokens=250)
-            else:
-                contexts = [([word.lower()], 0)]
+                contexts = corpus.get_contexts(lemma, max_num_tokens=250) or contexts
+
             if not contexts:
                 n_skipped += 1
                 if word not in fallback_preds:
                     pred_synsets = [(sample(synsets.keys(), 1)[0], 'nan')]
-                    if not fallback_preds:
+                    if fallback_preds:
                         print(f"Warning: {word} not in fallback_predictions")
                 else:
                     pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
             else:
-                random_contexts = sample(contexts, args.batch_size)
+                random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
                 pred_hypernyms = predict_with_hybert(model,
                                                      random_contexts,
@@ -279,6 +290,7 @@ if __name__ == "__main__":
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
                                              score_hyperhypernym_synsets=False)
+            # import ipdb; ipdb.set_trace()
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
