@@ -288,10 +288,11 @@ if __name__ == "__main__":
                 print(f"Random context ({word}) = {random_contexts[0]}")
                 try:
                     pred_hypernyms = predict_with_hybert(model,
-                                                        random_contexts,
-                                                        metric=args.metric,
-                                                        k=30)
-                except:
+                                                         random_contexts,
+                                                         metric=args.metric,
+                                                         k=30)
+                except Exception as msg:
+                    print(f"captured exception with msg = '{msg}'")
                     import ipdb; ipdb.set_trace()
                 print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
                 pred_synsets = score_synsets(pred_hypernyms,
@@ -299,7 +300,7 @@ if __name__ == "__main__":
                                              by='max',
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
-                                             score_hyperhypernym_synsets=False)
+                                             score_hyperhypernym_synsets=True)
             # import ipdb; ipdb.set_trace()
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
