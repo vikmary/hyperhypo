@@ -20,6 +20,10 @@ def write_training(synsets: Dict[str, Dict],
             text = ','.join(s['content'] for s in synset['senses'])
             parents = "['" + "', '".join(h['id'] for h in synset['hypernyms']) + "']"
             writer.writerow([synset_id, text, parents, ''])
+            if 'hyperhypernyms' in synset:
+                parents = "['" + "', '".join(h['id']
+                                             for h in synset['hyperhypernyms']) + "']"
+                writer.writerow([synset_id, text, parents, ''])
 
 
 def parse_args():
@@ -42,16 +46,6 @@ if __name__ == "__main__":
     train_synsets = get_train_synsets([args.data_path])
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
-    # for s_id, s in train_synsets.items():
-    #     if s_id not in synsets:
-    #         synsets[s_id] = s
-    #     else:
-    #         for k, vs in s.items():
-    #             if isinstance(vs, list):
-    #                 synsets[s_id][k] = synsets[s_id].get(k, [])
-    #                 for v in vs:
-    #                     if v not in synsets[s_id][k]:
-    #                         synsets[s_id][k].append(v)
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     valid_synsets = {}

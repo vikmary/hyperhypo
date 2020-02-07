@@ -29,7 +29,6 @@ if __name__ == "__main__":
     train_synsets = get_train_synsets(args.data_paths)
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
-    synsets["2116-N"]
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     if args.bert_model_path is not None:
@@ -40,17 +39,17 @@ if __name__ == "__main__":
 
     train_tuples = []
     for synset_id, synset in tqdm(train_synsets.items()):
-        senses = [s['content'].lower() for s in synset['senses']]
+        senses = [s['content'] for s in synset['senses']]
         # construct hypernyms
         hypernym_ids = [h['id'] for h in synset['hypernyms']]
-        hypernyms = [[s['content'].lower() for s in synsets[h_id]['senses']]
+        hypernyms = [[s['content'] for s in synsets[h_id]['senses']]
                      for h_id in hypernym_ids]
         # construct hypernyms of hypernyms
         hyperhypernym_ids = set()
         for h_id in hypernym_ids:
             hyperhypernym_ids.update(hh['id']
                                      for hh in synsets[h_id].get('hypernyms', []))
-        hyperhypernyms = [[s['content'].lower() for s in synsets[hh_id]['senses']]
+        hyperhypernyms = [[s['content'] for s in synsets[hh_id]['senses']]
                           for hh_id in hyperhypernym_ids]
 
         if args.bert_model_path is not None:

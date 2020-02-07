@@ -44,13 +44,15 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             next(reader)
             for row in reader:
                 synset_id, senses, hyper_synset_ids = row[:3]
-                senses = senses.split(',')
+                senses = [s.strip() for s in senses.split(',')]
                 hyper_synset_ids = json.loads(hyper_synset_ids.replace("'", '"'))
                 if synset_id not in synsets:
-                    synsets[synset_id] = {'senses': [], 'hypernyms': []}
-                synsets[synset_id]['senses'].extend({'content': s} for s in senses)
-                synsets[synset_id]['hypernyms'].extend({'id': i}
-                                                       for i in hyper_synset_ids)
+                    synsets[synset_id] = {'senses': [{'content': s} for s in senses],
+                                          'hypernyms': [{'id': i}
+                                                        for i in hyper_synset_ids]}
+                else:
+                    synsets[synset_id]['hyperhypernyms'] = [{'id': i}
+                                                            for i in hyper_synset_ids]
     return synsets
 
 
