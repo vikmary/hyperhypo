@@ -15,11 +15,11 @@ def write_training(synsets: Dict[str, Dict],
                    fname: Union[str, Path]) -> None:
     with open(fname, 'wt') as fout:
         writer = csv.writer(fout, delimiter='\t')
-        writer.writerow(['SYNSET_ID', 'TEXT', 'PARENTS', 'DEFINITION'])
+        writer.writerow(['SYNSET_ID', 'TEXT', 'PARENT', 'PARENT_TEXTS'])
         for synset_id, synset in synsets.items():
             text = ','.join(s['content'] for s in synset['senses'])
-            parents = ','.join(h['id'] for h in synset['hypernyms'])
-            writer.writerow([synset_id, text, parents, synset.get('description', '')])
+            parents = "['" + "', '".join(h['id'] for h in synset['hypernyms']) + "']"
+            writer.writerow([synset_id, text, parents, ''])
 
 
 def parse_args():
@@ -75,10 +75,12 @@ if __name__ == "__main__":
           f"({len(valid_synsets)/num_old_train:.4}) validation synsets"
           f" from {i} random synsets.")
 
-    train_out_path = args.data_path.with_name(args.data_path.name + '.train')
+    train_out_path = args.data_path.with_name(args.data_path.name.rsplit('.', 1)[0] +
+                                              '.train.tsv')
     print(f"Writing training synsets to {train_out_path}.")
     write_training(train_synsets, train_out_path)
 
-    valid_out_path = args.data_path.with_name(args.data_path.name + '.valid')
+    valid_out_path = args.data_path.with_name(args.data_path.name.rsplit('.', 1)[0] +
+                                              '.valid.tsv')
     print(f"Writing validation synsets to {valid_out_path}.")
     write_training(valid_synsets, valid_out_path)

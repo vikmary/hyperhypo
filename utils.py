@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import json
 from typing import Union, List, Dict, Iterator, Callable
 from pathlib import Path
 import random
@@ -43,17 +44,13 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             next(reader)
             for row in reader:
                 synset_id, senses, hyper_synset_ids = row[:3]
-                synset_description = ''
-                if len(row) > 3:
-                    synset_description = row[3]
                 senses = senses.split(',')
-                hyper_synset_ids = hyper_synset_ids.split(',')
-                if synset_id in synsets:
-                    raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
-                synsets[synset_id] = {'senses': [{'content': s} for s in senses],
-                                      'description': synset_description,
-                                      'hypernyms': [{'id': i}
-                                                    for i in hyper_synset_ids]}
+                hyper_synset_ids = json.loads(hyper_synset_ids.replace("'", '"'))
+                if synset_id not in synsets:
+                    synsets[synset_id] = {'senses': [], 'hypernyms': []}
+                synsets[synset_id]['senses'].extend({'content': s} for s in senses)
+                synsets[synset_id]['hypernyms'].extend({'id': i}
+                                                       for i in hyper_synset_ids)
     return synsets
 
 
