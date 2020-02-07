@@ -140,11 +140,7 @@ class CorpusIndexed:
         base_name = self.index_path.name.rsplit('.json', 1)[0]
         base_name = base_name.split('.', 2)[-1]
         if '-head-' in base_name:
-            base_name, num_sents = base_name.rsplit('-head-', 1)
-            num_sents = int(num_sents)
-            print(f"Will load only {num_sents} sentences from corpus.")
-        else:
-            num_sents = sys.maxsize
+            base_name = base_name.rsplit('-head-', 1)[0]
         self.corpus_path = Path(self.index_path.with_name('corpus.' + base_name +
                                                           '.token.txt.gz'))
         if not self.corpus_path.exists():
@@ -153,16 +149,20 @@ class CorpusIndexed:
         if not self.corpus_path.exists():
             raise RuntimeError(f"corpus {self.corpus_path} doesn't exists")
 
-        self.idx = self.load_index(self.index_path, self.vocab)
-        self.corpus = self.load_corpus(self.corpus_path, num_sents)
+        self.idx, sent_idxs = self.load_index(self.index_path, self.vocab)
+        self.corpus = self.load_corpus(self.corpus_path, sent_idxs)
 
     @classmethod
     def load_corpus(cls,
                     path: Union[str, Path],
-                    num_sents: int = sys.maxsize) -> List[str]:
+                    sent_idxs: Optional[set] = None) -> List[str]:
         print(f"Loading corpus from {path}.", file=sys.stderr)
         with smart_open(path, 'rt') as fin:
-            return [ln.strip() for _, ln in zip(range(num_sents), fin)]
+            if sent_idxs is not None:
+                return [ln.strip() if i in sent_idxs else None
+                        for i, ln in enumerate(fin)]
+            else:
+                return [ln.strip() for ln in fin]
 
     @classmethod
     def load_index(cls,
@@ -171,19 +171,24 @@ class CorpusIndexed:
         print(f"Loading index from {path}.", file=sys.stderr)
 
         index = {}
+        sent_idxs = set()
         if vocab is not None:
             print(f"Will load only {len(vocab)} lemmas present in a vocab.")
             for lemma in vocab:
                 index[lemma] = collections.Counter()
             for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
                 if lemma in index:
-                    index[lemma].update(map(tuple, idxs))
+                    for idx in idxs:
+                        index[lemma][tuple(idx)] += 1
+                        sent_idxs.add(idx[0])
         else:
             for lemma, idxs in ijson.kvitems(open(path, 'rt'), ''):
                 if lemma not in index:
                     index[lemma] = collections.Counter()
-                index[lemma].update(map(tuple, idxs))
-        return index
+                for idx in idxs:
+                    index[lemma][tuple(idx)] += 1
+                    sent_idxs.add(idx[0])
+        return index, sent_idxs
 
     def get_contexts(self,
                      lemma: str,
@@ -281,12 +286,17 @@ if __name__ == "__main__":
             else:
                 random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
-                pred_hypernyms = predict_with_hybert(model,
-                                                     random_contexts,
-                                                     metric=args.metric)
+                try:
+                    pred_hypernyms = predict_with_hybert(model,
+                                                        random_contexts,
+                                                        metric=args.metric,
+                                                        k=30)
+                except:
+                    import ipdb; ipdb.set_trace()
                 print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
                 pred_synsets = score_synsets(pred_hypernyms,
                                              candidates,
+                                             by='max',
                                              pos=args.pos,
                                              wordnet_synsets=synsets,
                                              score_hyperhypernym_synsets=False)
