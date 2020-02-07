@@ -34,6 +34,9 @@ def parse_args():
                         help='filter hypernyms of only this type of pos')
     parser.add_argument('--is-train-format', '-T', action='store_true',
                         help='whether input data is in train format or in test format')
+    parser.add_argument('--synset-level', '-S', action='store_true',
+                        help='predict from model on the level of synsets,'
+                        ' not on the level of words')
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
                         help='path to a wordnet directory')
@@ -271,19 +274,20 @@ if __name__ == "__main__":
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
-            contexts = [([word.lower()], 0)]
+            contexts = []
             if corpus:
                 contexts = corpus.get_contexts(lemma, max_num_tokens=250) or contexts
-
             if not contexts:
                 n_skipped += 1
-                if word not in fallback_preds:
-                    pred_synsets = [(sample(synsets.keys(), 1)[0], 'nan')]
-                    if fallback_preds:
+                if fallback_preds:
+                    if word in fallback_preds:
+                        pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
+                    else:
+                        contexts = contexts or [([word.lower()], 0)]
                         print(f"Warning: {word} not in fallback_predictions")
                 else:
-                    pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
-            else:
+                    contexts = contexts or [([word.lower()], 0)]
+            if contexts:
                 random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
                 try:
@@ -307,5 +311,5 @@ if __name__ == "__main__":
                                         for sense in synsets[s_id]['senses'])
                 f_pred.write(f'{word.upper()}\t{s_id}\t{score}\t{h_senses_str}\n')
     print(f"Wrote predictions to {out_pred_path}.")
-    print(f"Skipped {n_skipped}/{len(test_senses)}"
-          f" ({int(n_skipped/len(test_senses) * 100)} %) test words.")
+    print(f"{n_skipped}/{len(test_senses)} ({int(n_skipped/len(test_senses)*100)}%)"
+          f" test words are without context.")
