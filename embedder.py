@@ -49,13 +49,21 @@ if __name__ == "__main__":
     emb_mat = model.embeddings.word_embeddings.weight
 
     res = get_word_embeddings(['мыть', 'мама'], emb_mat, tokenizer=tokenizer)
-    print(res, res.shape)
+    print(res.shape)
+    print('norms =', res.norm(dim=1))
+
+    res0 = get_word_embeddings(['том', 'бук', 'Двина'], emb_mat, tokenizer=tokenizer)
+    print(res0.shape)
+    print('norms =', res0.norm(dim=1))
+
+
     res1 = get_word_embeddings(['Литва', 'Литовская Республика', 'ывралыва'], emb_mat,
                               tokenizer=tokenizer)[1]
-    print(res1, res1.shape)
+    print(res1.shape)
 
     res2 = get_word_embeddings(['Литовская', 'Республика'], emb_mat,
                                tokenizer=tokenizer).sum(dim=0) / 2
+    print('norms =', res2.norm(dim=0))
     print(res2.shape)
 
     print("Difference between embeddings of 'Литовская Республика':", (res1 - res2).norm())
