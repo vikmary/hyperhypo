@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Dict
 from pathlib import Path
 
 import torch
@@ -18,18 +18,30 @@ class HyBert(nn.Module):
     def __init__(self,
                  bert: BertModel,
                  tokenizer: BertTokenizer,
-                 hypernym_list: Union[str, Path, List[str]]):
+                 hypernym_list: Union[str, Path, List[str], Dict[str, List[str]]],
+                 level: str = 'sense'):
         super(HyBert, self).__init__()
+        if level not in ('sense', 'synset'):
+            raise ValueError(f'level parameters has wrong value "{level}"')
+
         self.bert = bert
-        if not isinstance(hypernym_list, list):
+        if not isinstance(hypernym_list, (list, dict)):
             hypernym_list = self._read_hypernym_list(hypernym_list)
 
         self.tokenizer = tokenizer
         self.hypernym_list = hypernym_list
-        embeddings = self.bert.embeddings.word_embeddings.weight.data
-        hype_embeddings = get_word_embeddings(self.hypernym_list,
-                                              embeddings.detach(),
-                                              self.tokenizer)
+        embeddings = self.bert.embeddings.word_embeddings.weight.data.detach()
+        if level == 'sense':
+            hype_embeddings = get_word_embeddings(self.hypernym_list,
+                                                  embeddings,
+                                                  self.tokenizer)
+        elif level == 'synset':
+            hype_embeddings = []
+            for synset_id, phrases in hypernym_list.items():
+                phrases_embs = get_word_embeddings(phrases, embeddings, self.tokenizer)
+                hype_embeddings.append(phrases_embs.sum(dim=0) / len(phrases))
+            hype_embeddings = torch.stack(hype_embeddings, dim=0)
+
         self.hypernym_embeddings = torch.nn.Parameter(hype_embeddings)
 
     @staticmethod

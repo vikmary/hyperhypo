@@ -97,20 +97,27 @@ def predict_with_hybert(model: HyBert,
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
 
-def score_synsets(hypernym_preds: List[Tuple[str, float]],
-                  hypernym2synsets: Dict[str, List[str]],
-                  pos: Optional[str] = None,
-                  by: str = 'max',
-                  k: int = 20,
-                  score_hyperhypernym_synsets: bool = False,
-                  wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
+def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
+                    pos: Optional[str] = None,
+                    by: str = 'max',
+                    k: int = 20,
+                    score_hyperhypernym_synsets: bool = False,
+                    wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
-    if by not in ('mean', 'max'):
+    if by == 'mean':
+        score_fn = lambda scores: sum(scores) / len(scores)
+    elif by == 'max':
+        score_fn = lambda scores: max(scores)
+    elif by == 'sum':
+        score_fn = lambda scores: sum(scores)
+    else:
         raise ValueError(f'Wrong value for by \'{by}\'')
+
     synset_scores = collections.defaultdict(list)
-    for hyper, h_score in hypernym_preds:
-        cand_synsets = hypernym2synsets[hyper]
+    for cand_synsets, h_score in hypernym_preds:
+        if isinstance(cand_synsets, str):
+            cand_synsets = [cand_synsets]
         if score_hyperhypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
@@ -119,17 +126,21 @@ def score_synsets(hypernym_preds: List[Tuple[str, float]],
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
             synset_scores[h_synset].append(h_score)
-    synset_mean_scores = {synset: max(scores) if by == 'max' else sum(scores)/len(scores)
+    synset_mean_scores = {synset: score_fn(scores)
                           for synset, scores in synset_scores.items()}
     return sorted(synset_mean_scores.items(), key=lambda x: x[1], reverse=True)[:k]
 
 
-def load_candidates(fname: Union[str, Path]) -> Dict[str, List[str]]:
+def load_candidates(fname: Union[str, Path],
+                    synset2sense: bool = False) -> Dict[str, List[str]]:
     cands = collections.defaultdict(list)
     with open(fname, 'rt') as fin:
         for row in fin:
             cand_word, cand_synset_id = row.split('\t', 2)[:2]
-            cands[cand_word].append(cand_synset_id)
+            if synset2sense:
+                cands[cand_synset_id].append(cand_word)
+            else:
+                cands[cand_word].append(cand_synset_id)
     return cands
 
 
@@ -251,8 +262,12 @@ if __name__ == "__main__":
     bert = BertModel.from_pretrained(str(args.bert_model_dir / 'ptrubert.pt'),
                                      config=config)
 
-    candidates = load_candidates(args.candidates)
-    model = HyBert(bert, tokenizer, list(candidates.keys()))
+    if args.synset_level:
+        candidates = load_candidates(args.candidates, synset2sense=True)
+        model = HyBert(bert, tokenizer, candidates, level='synset')
+    else:
+        candidates = load_candidates(args.candidates)
+        model = HyBert(bert, tokenizer, list(candidates.keys()), level='sense')
     model.to(device)
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")
@@ -291,20 +306,25 @@ if __name__ == "__main__":
                 random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
                 try:
-                    pred_hypernyms = predict_with_hybert(model,
-                                                         random_contexts,
-                                                         metric=args.metric,
-                                                         k=30)
+                    preds = predict_with_hybert(model,
+                                                random_contexts,
+                                                metric=args.metric,
+                                                k=30)
                 except Exception as msg:
                     print(f"captured exception with msg = '{msg}'")
                     import ipdb; ipdb.set_trace()
-                print(f"Pred hypernyms ({word}): {pred_hypernyms[:2]}")
-                pred_synsets = score_synsets(pred_hypernyms,
-                                             candidates,
-                                             by='max',
-                                             pos=args.pos,
-                                             wordnet_synsets=synsets,
-                                             score_hyperhypernym_synsets=True)
+                pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
+                               for p, sc in preds]
+                print(f"Pred hypernyms ({word}): {pred_senses[:4]}")
+                if args.synset_level:
+                    pred_synsets = preds
+                else:
+                    pred_synsets = [(candidates[h], sc) for h, sc in preds]
+                pred_synsets = rescore_synsets(pred_synsets,
+                                               by='max',
+                                               pos=args.pos,
+                                               wordnet_synsets=synsets,
+                                               score_hyperhypernym_synsets=True)
             # import ipdb; ipdb.set_trace()
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
