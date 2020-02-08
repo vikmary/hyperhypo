@@ -90,6 +90,11 @@ if __name__ == "__main__":
                         except Exception as msg:
                             print(f"WARNING: error {msg} for sent = {sent}")
                             continue
-                        f_tok.write(' '.join(tokens) + '\n')
-                        f_lem.write(' '.join(lemmas) + '\n')
+                        out_tokens, out_lemmas = ' '.join(tokens), ' '.join(lemmas)
+                        if len(out_tokens.split()) != len(out_lemmas.split()):
+                            print("Tokenized and lemmatized texts have different lengths"
+                                  ", skipping.")
+                            continue
+                        f_tok.write(out_tokens + '\n')
+                        f_lem.write(out_lemmas + '\n')
     pbar.close()
