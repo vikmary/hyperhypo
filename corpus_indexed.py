@@ -76,13 +76,14 @@ class CorpusIndexed:
         if lemma not in self.idx:
             print(f"Warning: lemma '{lemma}' not in index.", file=sys.stderr)
             return []
-        sents = ((self.corpus[sent_idx].split(), pos)
-                 for sent_idx, pos in self.idx[lemma])
+        sents = ((self.corpus[sent_idx].split(), l_start, l_end)
+                 for sent_idx, l_start, l_end in self.idx[lemma])
         if max_num_tokens is not None:
             sents = list(filter(lambda s_pos: len(s_pos[0]) < max_num_tokens, sents))
             if not sents:
                 w_size = max_num_tokens // 2
-                sents = ((self.corpus[s_id].split()[pos - w_size: pos + w_size],
-                          w_size - max(w_size - pos, 0))
-                         for s_id, pos in self.idx[lemma])
+                sents = ((self.corpus[s_id].split()[l_start - w_size: l_start + w_size],
+                          w_size - max(w_size - l_start, 0),
+                          w_size - max(w_size - l_start, 0) + (l_end - l_start))
+                         for s_id, l_start, l_end in self.idx[lemma])
         return list(sents)

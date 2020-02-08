@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import re
 import argparse
 import itertools
 import collections
@@ -63,19 +62,20 @@ def parse_args():
 
 
 def predict_with_hybert(model: HyBert,
-                        contexts: List[Tuple[List[str], int]],
+                        contexts: List[Tuple[List[str], int, int]],
                         k: int = 100,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
     subtoken_idxs, hyponym_masks = [], []
-    for context, pos in contexts:
+    for context, l_start, l_end in contexts:
         subtoken_idxs.append([])
         hyponym_masks.append([])
         for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
             subtokens = model.tokenizer.tokenize(token)
             subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
-            hyponym_masks[-1].extend([float(i == pos + 1)] * len(subtokens))
+            mask_value = float(i in range(l_start + 1, l_end + 1))
+            hyponym_masks[-1].extend([mask_value] * len(subtokens))
     batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
 
     # hypernym_repr_t: [batch_size, hidden_size]
@@ -218,10 +218,10 @@ if __name__ == "__main__":
                     if word in fallback_preds:
                         pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
                     else:
-                        contexts = contexts or [([word.lower()], 0)]
+                        contexts = contexts or [([word.lower()], 0, len(word.split()))]
                         print(f"Warning: {word} not in fallback_predictions")
                 else:
-                    contexts = contexts or [([word.lower()], 0)]
+                    contexts = contexts or [([word.lower()], 0, len(word.split()))]
             if contexts:
                 random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
@@ -233,20 +233,20 @@ if __name__ == "__main__":
                 except Exception as msg:
                     print(f"captured exception with msg = '{msg}'")
                     import ipdb; ipdb.set_trace()
-                pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
-                               for p, sc in preds]
-                print(f"Pred synsets ({word}): {pred_senses[:4]}")
                 if args.synset_level:
                     pred_synsets = preds
                 else:
                     pred_synsets = [(candidates[h], sc) for h, sc in preds]
+                pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
+                               for p, sc in pred_synsets]
+                print(f"Pred synsets ({word}): {pred_senses[:4]}")
                 pred_synsets = rescore_synsets(pred_synsets,
                                                by='max',
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
                                                score_hyperhypernym_synsets=True)
                 pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
-                               for p, sc in preds]
+                               for p, sc in pred_synsets]
                 print(f"Rescored pred synsets({word}): {pred_senses[:4]}")
             # import ipdb; ipdb.set_trace()
             for s_id, score in pred_synsets:
