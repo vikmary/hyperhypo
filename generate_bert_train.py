@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from utils import get_train_synsets, get_wordnet_synsets, enrich_with_wordnet_relations
 from utils import get_cased
+from prepare_corpora.utils import TextPreprocessor
 
 
 def parse_args():
@@ -25,6 +26,11 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
+    preprocessor = TextPreprocessor(filter_empty_brackets=True,
+                                    filter_stresses=True,
+                                    lowercase=True,
+                                    lemmatize=True)
 
     train_synsets = get_train_synsets(args.data_paths)
 
@@ -54,9 +60,10 @@ if __name__ == "__main__":
 
         if args.bert_model_path is not None:
             train_tuples.append((
-                [get_cased(s, tok) for s in senses],
-                [[get_cased(h, tok) for h in h_s] for h_s in hypernyms],
-                [[get_cased(hh, tok) for hh in hh_s] for hh_s in hyperhypernyms]))
+                [get_cased(preprocessor(s), tok) for s in senses],
+                [[get_cased(preprocessor(h), tok) for h in h_s] for h_s in hypernyms],
+                [[get_cased(preprocessor(hh), tok) for hh in hh_s]
+                 for hh_s in hyperhypernyms]))
         else:
             train_tuples.append((senses, hypernyms, hyperhypernyms))
 

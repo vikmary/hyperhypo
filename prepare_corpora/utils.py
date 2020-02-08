@@ -111,3 +111,26 @@ class Lemmatizer:
     @functools.lru_cache(maxsize=20000)
     def __call__(self, token: str) -> str:
         return self.lemmatizer.parse(token)[0].normal_form
+
+
+class TextPreprocessor:
+    def __init__(self,
+                 filter_stresses: bool = True,
+                 filter_empty_brackets: bool = True,
+                 lowercase: bool = True,
+                 lemmatize: bool = True):
+        self.lowercase = lowercase
+        self.lemmatize = lemmatize
+
+        self.sanitizer = Sanitizer(filter_stresses=filter_stresses,
+                                   filter_empty_brackets=filter_empty_brackets)
+        self.tokenizer = re.compile(r"[\w']+|[^\w ]")
+        self.lemmatizer = Lemmatizer()
+
+    def __call__(self, text: str) -> str:
+        text = self.sanitizer(text)
+        if self.lemmatize:
+            text = ' '.join(self.lemmatizer(t) for t in self.tokenizer.findall(text))
+        if self.lowercase:
+            text = text.lower()
+        return text

@@ -80,12 +80,13 @@ if __name__ == "__main__":
                                                  PAIRED_SHORTENINGS)
                     for sent in sents:
                         try:
+                            sent = sent.replace('\n', '')
                             if len(sent) < args.min_characters:
                                 continue
                             tokens = tokenizer.findall(sent)
                             if len(tokens) < args.min_tokens:
                                 continue
-                            lemmas = [lemmatizer(t) for t in tokens]
+                            lemmas = [lemmatizer(t).lower() for t in tokens]
                         except Exception as msg:
                             print(f"WARNING: error {msg} for sent = {sent}")
                             continue

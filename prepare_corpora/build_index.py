@@ -4,7 +4,6 @@
 import argparse
 import csv
 import json
-import re
 import itertools
 import collections
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import List, Tuple, Dict, Iterator, Optional
 
 from tqdm import tqdm
 
-from prepare_corpora.utils import smart_open, count_lines, Lemmatizer, Sanitizer
+from prepare_corpora.utils import smart_open, count_lines, TextPreprocessor
 from utils import get_train_synsets
 
 
@@ -33,41 +32,44 @@ def build_index(utterances: Iterator[str],
                 max_utterances: int,
                 max_sentences: Optional[int] = None) -> Dict[str, collections.Counter]:
     # prioritize_with_max_length: int = 200
-    index = {}
+    index = collections.defaultdict(collections.Counter)
 
     for i_u, utter in tqdm(enumerate(utterances), total=max_utterances):
         if i_u >= max_utterances:
             break
-        utter_tokens = utter.split()
+        utter_lemmas = utter.split()
         # TODO: support finding phrases of several words
-        for i_t, utter_token in enumerate(utter_tokens):
-
-            if utter_token not in index:
-                index[utter_token] = collections.Counter()
-            elif max_sentences and (len(index[utter_token]) >= max_sentences):
+        for i_t, utter_lemma in enumerate(utter_lemmas):
+            if max_sentences and (len(index[utter_lemma]) >= max_sentences):
                 continue
-                # if len(utter_tokens) < prioritize_with_max_length:
-                #     index[utter_token][(i_u, i_t)] += 1
-            index[utter_token][(i_u, i_t)] += 1
+                # if len(utter_lemmas) < prioritize_with_max_length:
+                #     index[utter_lemma][(i_u, i_t)] += 1
+            index[utter_lemma][(i_u, i_t, i_t+1)] += 1
+            if i_t + 1 < len(utter_lemmas):
+                utter_bilemma = ' '.join(utter_lemmas[i_t:i_t+2])
+                index[utter_bilemma][(i_u, i_t, i_t+2)] += 1
+                if i_t + 2 < len(utter_lemmas):
+                    utter_trilemma = ' '.join(utter_lemmas[i_t:i_t+3])
+                    index[utter_trilemma][(i_u, i_t, i_t+3)] += 1
     return index
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    sanitizer = Sanitizer(filter_stresses=True, filter_empty_brackets=True)
-    tokenizer = re.compile(r"[\w']+|[^\w ]")
-    lemmatizer = Lemmatizer()
+    preprocessor = TextPreprocessor(filter_stresses=True,
+                                    filter_empty_brackets=True,
+                                    lowercase=True,
+                                    lemmatize=True)
 
     hyponyms = set()
     for synset_id, synset in get_train_synsets(args.train_paths).items():
         for sense in synset['senses']:
-            hypo = sanitizer(sense['content'].lower())
-            if hypo and (len(tokenizer.findall(hypo)) == 1):
-                hyponyms.add(lemmatizer(hypo))
+            hypo = preprocessor(sense['content'])
+            if not hypo:
+                print(f"Skipping hyponym {hypo}, because it's lemma is empty.")
             else:
-                print(f"Skipping hyponym {hypo}, because it contains more or less than"
-                      f" one token.")
+                hyponyms.add(hypo)
     hyponyms = frozenset(hyponyms)
 
     if args.max_lines is None:
@@ -88,7 +90,7 @@ if __name__ == "__main__":
 
     out_path = args.data_path.with_name('index.full.' + base_name + '.json')
     print(f"Writing full index to {out_path}.")
-    json.dump({token: list(idxs) for token, idxs in inverted_index.items()},
+    json.dump({lemma: list(idxs) for lemma, idxs in inverted_index.items()},
               open(out_path, 'wt'),
               indent=2,
               ensure_ascii=False)
