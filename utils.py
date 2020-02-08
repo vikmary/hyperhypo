@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import io
 import sys
 import json
-from typing import Union, List, Dict, Iterator, Callable
+import ijson
+from typing import Union, List, Dict, Iterator, Callable, Tuple, Any
 from pathlib import Path
 import random
 import csv
@@ -152,6 +154,10 @@ def get_cased(s: str, tokenizer: Callable) -> str:
     cand_lens = [len(tokenizer(c)) for c in cands]
     min_len = min(cand_lens)
     return cands[cand_lens.index(min_len)]
+
+
+def read_json_by_item(f: io.StringIO) -> Iterator[Tuple[Any, Any]]:
+    yield from ijson.kvitems(f, '')
 
 
 if __name__ == "__main__":
