@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import pickle
 from pathlib import Path
 import argparse
+# import tracemalloc
+import gc
 
 import torch
 from torch.utils.data import DataLoader
 from transformers import BertTokenizer, BertConfig, BertModel
 from tensorboardX import SummaryWriter
+from tqdm import tqdm
 
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
@@ -67,10 +71,22 @@ def parse_args():
 
 
 def main():
+
     args = parse_args()
-    tokenizer = BertTokenizer(args.tokenizer_vocab_path, do_lower_case=False)
 
     hype_list = get_hypernyms_list_from_train(args.train_path)
+
+    config = BertConfig.from_pretrained(args.config_path)
+    bert = BertModel.from_pretrained(args.model_weights_path, config=config)
+    tokenizer = BertTokenizer.from_pretrained(args.model_dir, do_lower_case=False)
+
+    model = HyBert(bert, tokenizer, hype_list)
+
+    # initialization = 'models/100k_4.25.pt'
+    # print(f'Initializing model from {initialization}')
+    # model.load_state_dict(torch.load(initialization))
+    model.to(device)
+    # tracemalloc.start()
     ds = HypoDataset(tokenizer,
                      args.corpus_path,
                      args.index_path,
@@ -79,22 +95,15 @@ def main():
 
     dl = DataLoader(ds, batch_size=16, collate_fn=batch_collate)
 
-    config = BertConfig.from_pretrained(args.config_path)
-    bert = BertModel.from_pretrained(args.model_weights_path, config=config)
-    tokenizer = BertTokenizer.from_pretrained(args.model_dir, do_lower_case=False)
-
-    model = HyBert(bert, tokenizer, hype_list)
-    model.to(device)
-
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    criterion = torch.nn.KLDivLoss(reduction='none')
     # TODO: add option for passing model.bert.parameters to train embeddings
     optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=2e-5)
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
-                                                  1e-5,
-                                                  3e-5,
-                                                  step_size_up=10000,
-                                                  step_size_down=100000,
-                                                  cycle_momentum=False)
+    # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
+    #                                               1e-5,
+    #                                               3e-5,
+    #                                               step_size_up=10000,
+    #                                               step_size_down=100000,
+    #                                               cycle_momentum=False)
 
     writer = SummaryWriter()
 
@@ -102,31 +111,48 @@ def main():
     # TODO: add gradient accumulation
     count = 0
 
-    running_loss = 0
+    running_loss = None
     exponential_avg = 0.99
     best_loss = 1e9
 
+    ecpochs = 10
     save_every = 5000
-    for batch in dl:
-        if batch[0].shape[1] > 256:
-            continue
-        idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
-        model.zero_grad()
-        _, response = model(idxs_batch, mask_batch, attention_masks_batch)
-        loss = criterion(response, hype_idxs)
-        loss = torch.mean(loss)
-        loss.backward()
-        print(loss)
-        running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
-        writer.add_scalar('log-loss', loss, count)
-        if count % save_every == save_every - 1:
-            if running_loss < best_loss:
-                torch.save(model.parameters(), 'models/checkpoint.pt')
-        scheduler.step()
-        count += 1
-        optimizer.step()
+    for epoch in range(ecpochs):
+        print(f'Epoch: {epoch}')
+        for batch in tqdm(dl):
+            with torch.autograd.detect_anomaly():
+                idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
+                model.zero_grad()
+                _, response = model(idxs_batch, mask_batch, attention_masks_batch)
+                loss = criterion(response, hype_idxs)
+                loss = torch.sum(loss) / len(idxs_batch)
+                loss.backward()
+                loss = loss.detach().cpu().numpy()
+                if running_loss is None:
+                    running_loss = loss
+                else:
+                    running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
+                writer.add_scalar('log-loss', loss, count)
+                # if count % 100 == 99:
+                    # snapshot = tracemalloc.take_snapshot()
+                    #
+                    # with open(f'memstat/stats_{count}.pckl', 'wb') as fin:
+                    #     pickle.dump(snapshot, fin)
+                    # print(f'=================  {count} ======================')
+                    # print(snapshot.statistics('lineno')[:50])
+
+                if count % save_every == save_every - 1:
+                    if running_loss < best_loss:
+                        print(f'Better loss achieved {running_loss}! Saving model.')
+                        torch.save(model.state_dict(), 'models/checkpoint.pt')
+                # scheduler.step()
+                count += 1
+                optimizer.step()
+                if count % 100 == 99:
+                    gc.collect()
 
     writer.close()
+
 
 if __name__ == '__main__':
     main()
