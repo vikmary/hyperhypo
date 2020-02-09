@@ -11,6 +11,10 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 from transformers import BertTokenizer
+import numpy as np
+
+#                 hyponym syns  hyperonym syns  hyperhyperonym syns
+DATASET_TYPE = List[Union[List[str], List[List[str]], List[List[str]]]]
 
 
 class HypoDataset(Dataset):
@@ -22,29 +26,49 @@ class HypoDataset(Dataset):
                  hypernym_list: List[str],
                  debug: bool = False,
                  predict_all_hypes=True,
-                 max_len=128):
+                 max_len=128,
+                 valid_set_path: Union[str, Path] = None):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
 
         train_set = self._read_json(train_set_path)
-        self.train_set = []
-        not_in_index_list = []
-        for hypos, *hypes in train_set:
-            for hypo in hypos:
-                if hypo in self.hypo_index:
-                    self.train_set.append([hypo, *hypes])
-                else:
-                    not_in_index_list.append(hypo)
-        not_in_index_percent = len(not_in_index_list) / (len(self.train_set) + len(not_in_index_list))
-        print(f'{not_in_index_percent:.2f} hyponyms are not found in the index')
-        # print(f'Not found hyponyms:\n{not_in_index_list}')
+        self.dataset = self._filter_dataset(train_set)
+        self.train_set_end_idx = len(self.dataset)
+        if valid_set_path is not None:
+            valid_set = self._read_json(valid_set_path)
+            valid_set = self._filter_dataset(valid_set)
+            self.dataset.extend(valid_set)
 
         self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
         self.debug = debug
         self.predict_all_hypes = predict_all_hypes
         self.max_len = max_len
+
+    def get_train_idxs(self):
+        return np.arange(self.train_set_end_idx)
+
+    def get_valid_idxs(self):
+        return np.arange(self.train_set_end_idx, len(self.dataset))
+
+    def get_valid(self):
+        self.mode = 'valid'
+        return self
+
+    def _filter_dataset(self, dataset: DATASET_TYPE) -> DATASET_TYPE:
+        filtered_dataset = []
+        not_in_index_list = []
+        for hypos, *hypes in dataset:
+            for hypo in hypos:
+                if hypo in self.hypo_index:
+                    filtered_dataset.append([hypo, *hypes])
+                else:
+                    not_in_index_list.append(hypo)
+        not_in_index_percent = len(not_in_index_list) / (
+                    len(filtered_dataset) + len(not_in_index_list))
+        print(f'{not_in_index_percent:.2f} hyponyms are not found in the index')
+        return filtered_dataset
 
     @classmethod
     def _read_json(cls, hypo_index_path: Union[str, Path]):
@@ -60,7 +84,7 @@ class HypoDataset(Dataset):
         return len(self.train_set)
 
     def __getitem__(self, item):
-        hypo, hypes, hype_hypes = self.train_set[item]
+        hypo, hypes, hype_hypes = self.dataset[item]
         hypo = hypo.lower()
         all_hypes = list(chain(*(hypes + hype_hypes)))
         sent_idx, in_sent_start, in_sent_end = sample(self.hypo_index[hypo], 1)[0]

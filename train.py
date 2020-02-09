@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizer, BertConfig, BertModel
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
+from torch.utils.data.sampler import SubsetRandomSampler
 
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
@@ -55,6 +56,7 @@ def parse_args():
     corpus_path = data_path / corpus_file
     index_path = data_path / index_file
     train_path = data_path / 'train.cased.json'
+    valid_path = data_path / 'valid.cased.json'
     
     model_weights_path = model_dir / 'ptrubert.pt'
     config_path = model_dir / 'bert_config.json'
@@ -62,6 +64,7 @@ def parse_args():
     args.corpus_path = corpus_path
     args.index_path = index_path
     args.train_path = train_path
+    args.valid_path = valid_path
     args.model_weights_path = model_weights_path
     args.config_path = config_path
     args.tokenizer_vocab_path = tokenizer_vocab_path
@@ -75,6 +78,8 @@ def main():
     args = parse_args()
 
     hype_list = get_hypernyms_list_from_train(args.train_path)
+    valid_hype_list = get_hypernyms_list_from_train(args.valid_path)
+    hype_list.extend(valid_hype_list)
 
     config = BertConfig.from_pretrained(args.config_path)
     bert = BertModel.from_pretrained(args.model_weights_path, config=config)
@@ -91,9 +96,19 @@ def main():
                      args.corpus_path,
                      args.index_path,
                      args.train_path,
-                     hype_list)
+                     hype_list,
+                     valid_set_path=args.valid_path)
 
-    dl = DataLoader(ds, batch_size=16, collate_fn=batch_collate)
+    print(f'Train set len: {len(ds.get_train_idxs())}')
+    print(f'Valid set len: {len(ds.get_valid_idxs())}')
+    train_sampler = SubsetRandomSampler(ds.get_train_idxs())
+    valid_sampler = SubsetRandomSampler(ds.get_valid_idxs())
+
+    # TODO: add optional batch size
+    dl_train = DataLoader(ds, batch_size=16, collate_fn=batch_collate,
+                          sampler=train_sampler)
+    dl_valid = DataLoader(ds, batch_size=16, collate_fn=batch_collate,
+                          sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
     # TODO: add option for passing model.bert.parameters to train embeddings
@@ -114,42 +129,65 @@ def main():
     running_loss = None
     exponential_avg = 0.99
     best_loss = 1e9
+    best_val_loss = 1e9
 
     ecpochs = 10
     save_every = 5000
     for epoch in range(ecpochs):
         print(f'Epoch: {epoch}')
-        for batch in tqdm(dl):
-            with torch.autograd.detect_anomaly():
-                idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
+        for batch in tqdm(dl_train):
+            idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
+            model.zero_grad()
+            _, response = model(idxs_batch, mask_batch, attention_masks_batch)
+            loss = criterion(response, hype_idxs)
+            loss = torch.sum(loss) / len(idxs_batch)
+            loss.backward()
+            loss = loss.detach().cpu().numpy()
+            if running_loss is None:
+                running_loss = loss
+            else:
+                running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
+            writer.add_scalar('log-loss', loss, count)
+            # if count % 100 == 99:
+                # snapshot = tracemalloc.take_snapshot()
+                #
+                # with open(f'memstat/stats_{count}.pckl', 'wb') as fin:
+                #     pickle.dump(snapshot, fin)
+                # print(f'=================  {count} ======================')
+                # print(snapshot.statistics('lineno')[:50])
+
+            # if count % save_every == save_every - 1:
+            #     if running_loss < best_loss:
+            #         print(f'Better loss achieved {running_loss}! Saving model.')
+            #         torch.save(model.state_dict(), 'models/checkpoint.pt')
+            # scheduler.step()
+            count += 1
+            optimizer.step()
+            if count % 100 == 99:
+                gc.collect()
+        # Validation
+        val_loss = 0
+        val_count = 0
+        with torch.no_grad():
+            for batch in tqdm(dl_valid):
+                idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(
+                    *batch)
                 model.zero_grad()
                 _, response = model(idxs_batch, mask_batch, attention_masks_batch)
                 loss = criterion(response, hype_idxs)
-                loss = torch.sum(loss) / len(idxs_batch)
-                loss.backward()
-                loss = loss.detach().cpu().numpy()
-                if running_loss is None:
-                    running_loss = loss
-                else:
-                    running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
-                writer.add_scalar('log-loss', loss, count)
-                # if count % 100 == 99:
-                    # snapshot = tracemalloc.take_snapshot()
-                    #
-                    # with open(f'memstat/stats_{count}.pckl', 'wb') as fin:
-                    #     pickle.dump(snapshot, fin)
-                    # print(f'=================  {count} ======================')
-                    # print(snapshot.statistics('lineno')[:50])
+                loss = torch.sum(loss)
+                val_count += len(idxs_batch)
+                val_loss += loss.detach().cpu().numpy()
+        val_loss = val_loss / val_count
+        print(f'Validation loss: {val_loss}')
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            print(f'Better loss achieved {val_loss}! Saving model.')
+            # TODO: add model name
+            torch.save(model.state_dict(), 'models/checkpoint_val.pt')
 
-                if count % save_every == save_every - 1:
-                    if running_loss < best_loss:
-                        print(f'Better loss achieved {running_loss}! Saving model.')
-                        torch.save(model.state_dict(), 'models/checkpoint.pt')
-                # scheduler.step()
-                count += 1
-                optimizer.step()
-                if count % 100 == 99:
-                    gc.collect()
+
+
 
     writer.close()
 
