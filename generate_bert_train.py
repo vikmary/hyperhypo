@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from utils import get_train_synsets, get_wordnet_synsets, enrich_with_wordnet_relations
 from utils import get_cased
+from prepare_corpora.utils import TextPreprocessor
 
 
 def parse_args():
@@ -26,10 +27,14 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
+    preprocessor = TextPreprocessor(filter_empty_brackets=True,
+                                    filter_stresses=True,
+                                    lowercase=True,
+                                    lemmatize=True)
+
     train_synsets = get_train_synsets(args.data_paths)
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
-    synsets["2116-N"]
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     if args.bert_model_path is not None:
@@ -40,24 +45,25 @@ if __name__ == "__main__":
 
     train_tuples = []
     for synset_id, synset in tqdm(train_synsets.items()):
-        senses = [s['content'].lower() for s in synset['senses']]
+        senses = [s['content'] for s in synset['senses']]
         # construct hypernyms
         hypernym_ids = [h['id'] for h in synset['hypernyms']]
-        hypernyms = [[s['content'].lower() for s in synsets[h_id]['senses']]
+        hypernyms = [[s['content'] for s in synsets[h_id]['senses']]
                      for h_id in hypernym_ids]
         # construct hypernyms of hypernyms
         hyperhypernym_ids = set()
         for h_id in hypernym_ids:
             hyperhypernym_ids.update(hh['id']
                                      for hh in synsets[h_id].get('hypernyms', []))
-        hyperhypernyms = [[s['content'].lower() for s in synsets[hh_id]['senses']]
+        hyperhypernyms = [[s['content'] for s in synsets[hh_id]['senses']]
                           for hh_id in hyperhypernym_ids]
 
         if args.bert_model_path is not None:
             train_tuples.append((
-                [get_cased(s, tok) for s in senses],
-                [[get_cased(h, tok) for h in h_s] for h_s in hypernyms],
-                [[get_cased(hh, tok) for hh in hh_s] for hh_s in hyperhypernyms]))
+                [get_cased(preprocessor(s), tok) for s in senses],
+                [[get_cased(preprocessor(h), tok) for h in h_s] for h_s in hypernyms],
+                [[get_cased(preprocessor(hh), tok) for hh in hh_s]
+                 for hh_s in hyperhypernyms]))
         else:
             train_tuples.append((senses, hypernyms, hyperhypernyms))
 

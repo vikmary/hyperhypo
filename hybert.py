@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-from typing import Union, List
+from typing import Union, List, Tuple, Dict
 from pathlib import Path
 
 import torch
@@ -18,31 +18,52 @@ class HyBert(nn.Module):
     def __init__(self,
                  bert: BertModel,
                  tokenizer: BertTokenizer,
-                 hypernym_list: Union[str, Path, List[str]]):
+                 hypernym_list: Union[str, Path, List[str], Dict[str, List[str]]],
+                 level: str = 'sense'):
         super(HyBert, self).__init__()
+        if level not in ('sense', 'synset'):
+            raise ValueError(f'level parameters has wrong value "{level}"')
+
         self.bert = bert
-        if not isinstance(hypernym_list, list):
+        if not isinstance(hypernym_list, (list, dict)):
             hypernym_list = self._read_hypernym_list(hypernym_list)
 
         self.tokenizer = tokenizer
         self.hypernym_list = hypernym_list
-        embeddings = self.bert.embeddings.word_embeddings.weight.data
-        hype_embeddings = get_word_embeddings(self.hypernym_list,
-                                              embeddings.detach(),
-                                              self.tokenizer)
+        embeddings = self.bert.embeddings.word_embeddings.weight.data.detach()
+        if level == 'sense':
+            hype_embeddings = get_word_embeddings(self.hypernym_list,
+                                                  embeddings,
+                                                  self.tokenizer)
+        elif level == 'synset':
+            hype_embeddings = []
+            for synset_id, phrases in hypernym_list.items():
+                phrases_embs = get_word_embeddings(phrases, embeddings, self.tokenizer)
+                hype_embeddings.append(phrases_embs.sum(dim=0) / len(phrases))
+            hype_embeddings = torch.stack(hype_embeddings, dim=0)
+
         self.hypernym_embeddings = torch.nn.Parameter(hype_embeddings)
 
     @staticmethod
     def _read_hypernym_list(hypernym_list_path: Union[str, Path]) -> List[str]:
-        with open(hypernym_list_path) as handle:
+        print(f"Loading candidates from {hypernym_list_path}.")
+        with open(hypernym_list_path, 'rt') as handle:
             return [line.strip() for line in handle]
 
-    def forward(self, indices_batch: LongTensor, hypo_mask: Tensor, attention_mask: Tensor) -> Tensor:
+    def forward(self,
+                indices_batch: LongTensor,
+                hypo_mask: Tensor,
+                attention_mask: Tensor) -> Tuple[Tensor, Tensor]:
+        # h: [batch_size, seqlen, hidden_size]
         h = self.bert(indices_batch, attention_mask=attention_mask)[0]
-        m = torch.tensor(hypo_mask).unsqueeze(2)
-        hyponym_representations = torch.mean(h * m, 1)
+        # m: [batch_size, seqlen, 1]
+        m = hypo_mask.unsqueeze(2)
+        # hyponym_representations: [batch_size, hidden_size]
+        hyponym_representations = torch.sum(h * m, 1) / torch.sum(m, 1)
+        # hypernym_logits: [batch_size, vocab_size]
         hypernym_logits = hyponym_representations @ self.hypernym_embeddings.T
-        return hypernym_logits
+        hypernym_logits = torch.log_softmax(hypernym_logits, 1)
+        return hyponym_representations, hypernym_logits
 
 
 if __name__ == '__main__':
@@ -66,7 +87,7 @@ if __name__ == '__main__':
     token_idxs = torch.tensor([tokenizer.convert_tokens_to_ids(tokens)])
     hyponym_mask = torch.zeros_like(token_idxs, dtype=torch.float)
     hyponym_mask[0, 1] = 1.0
-    hypernym_logits = model(token_idxs, hyponym_mask)
+    _, hypernym_logits = model(token_idxs, hyponym_mask)
     print(f'Subwords: {tokens}\n'
           f'Subword indices [batch_size, seq_len]: {token_idxs}\n'
           f'Hyponym mask [batch_size, seq_len]: {hyponym_mask}\n'

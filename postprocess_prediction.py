@@ -3,7 +3,7 @@
 
 import argparse
 from pathlib import Path
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Dict
 
 from utils import get_wordnet_synsets, enrich_with_wordnet_relations
 
@@ -67,4 +67,4 @@ if __name__ == "__main__":
             hypernyms = rerank_predictions(hypernyms, synsets)
             for h_id, other in hypernyms:
                 senses = ','.join(s['content'] for s in synsets[h_id]['senses'])
-                fout.write(f'{w_id}\t{h_id}\t{senses}\n')
+                fout.write(f'{w_id.upper()}\t{h_id}\t{senses}\n')

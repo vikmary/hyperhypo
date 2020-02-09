@@ -4,10 +4,10 @@
 import json
 from itertools import chain
 from pathlib import Path
+from random import randint, sample
 from typing import Union, List, Tuple, Optional
 
 import torch
-from random import randint, sample
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import IterableDataset
 from transformers import BertTokenizer
@@ -25,7 +25,8 @@ class HypoDataset(IterableDataset):
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.train_set = self._read_json(train_set_path)
-        self.hypernyn_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
+        self.hypernym_list = hypernym_list
         self.debug = debug
 
     @classmethod
@@ -42,6 +43,7 @@ class HypoDataset(IterableDataset):
         while True:
             train_ind = randint(0, len(self.train_set) - 1)
             hypos, hypes, hype_hypes = self.train_set[train_ind]
+            hypos = [h.lower() for h in hypos]
             hypos_in_index = [h for h in hypos if h in self.hypo_index]
 
             if not hypos_in_index:
@@ -55,9 +57,12 @@ class HypoDataset(IterableDataset):
             hypo = sample(hypos_in_index, 1)[0]
             all_hypes = list(chain(*(hypes + hype_hypes)))
             hype = sample(all_hypes, 1)[0]
-            hype_idx = self.hypernyn_to_idx[hype]
+            hype_idx = self.hypernym_to_idx[hype]
+            if len(self.hypo_index[hypo]) == 0:
+                continue
             sent_idx, in_sent_hypo_idx = sample(self.hypo_index[hypo], 1)[0]
             sent_toks = self.corpus[sent_idx].split()
+            sent_toks = ['[CLS]'] + sent_toks + ['[SEP]']
             subword_idxs, hypo_mask = self._get_indices_and_masks(sent_toks, in_sent_hypo_idx)
             yield subword_idxs, hypo_mask, hype_idx
 
@@ -70,7 +75,8 @@ class HypoDataset(IterableDataset):
             sent_subwords.extend(subtokens)
             subtok_idxs = self.tokenizer.convert_tokens_to_ids(subtokens)
             sent_subword_idxs.extend(subtok_idxs)
-            mask_value = float(n == in_sent_hypo_idx)
+            # NOTE: + 1 because of [CLS] token in the beginning
+            mask_value = float(n == in_sent_hypo_idx + 1)
             sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
         return sent_subword_idxs, sent_hypo_mask
 
@@ -130,10 +136,17 @@ def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch
 
 
 if __name__ == '__main__':
-    tokenizer_vocab_path = 'sample_data/vocab.txt'
-    corpus_path = 'sample_data/tst_corpus.txt'
-    hypo_index_path = 'sample_data/tst_index.json'
-    train_set_path = 'sample_data/tst_train.json'
+    # tokenizer_vocab_path = 'sample_data/vocab.txt'
+    # corpus_path = 'sample_data/tst_corpus.txt'
+    # hypo_index_path = 'sample_data/tst_index.json'
+    # train_set_path = 'sample_data/tst_train.json'
+    data_path = Path('/home/hdd/data/hypernym/')
+    corpus_path = data_path / 'corpus.wikipedia-ru-2018-sample.token.txt'
+    hypo_index_path = data_path / 'index.train.wikipedia-ru-2018-sample.json'
+    train_set_path = data_path / 'train.cased.json'
+
+    model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
+    tokenizer_vocab_path = model_path / 'vocab.txt'
 
     tokenizer = BertTokenizer(tokenizer_vocab_path, do_lower_case=False)
     hype_list = get_hypernyms_list_from_train(train_set_path)
@@ -149,9 +162,7 @@ if __name__ == '__main__':
           f'Hypo Mask: {sentence_hypo_mask}')
     print('Note that dataset samples randomly form all possible samples')
 
-
     print('=' * 20)
-
 
     dl = DataLoader(ds, batch_size=2, collate_fn=batch_collate)
     idxs_batch, mask_batch, attention_masks_batch, hype_idxs = next(iter(dl))

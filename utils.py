@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import io
 import sys
-from typing import Union, List, Dict, Iterator, Callable
+import json
+import ijson
+from typing import Union, List, Dict, Iterator, Callable, Tuple, Any
 from pathlib import Path
 import random
 import csv
@@ -34,6 +37,7 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key, senses and hyperonyms as values."""
+    # TODO: add new function enrich_with_wordnet_senses
     synsets = {}
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
@@ -42,17 +46,15 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             next(reader)
             for row in reader:
                 synset_id, senses, hyper_synset_ids = row[:3]
-                synset_description = ''
-                if len(row) > 3:
-                    synset_description = row[3]
-                senses = senses.split(',')
-                hyper_synset_ids = hyper_synset_ids.split(',')
-                if synset_id in synsets:
-                    raise ValueError(f"multiple synsets with id = \'{synset_id}\'")
-                synsets[synset_id] = {'senses': [{'content': s} for s in senses],
-                                      'description': synset_description,
-                                      'hypernyms': [{'id': i}
-                                                    for i in hyper_synset_ids]}
+                senses = [s.strip() for s in senses.split(',')]
+                hyper_synset_ids = json.loads(hyper_synset_ids.replace("'", '"'))
+                if synset_id not in synsets:
+                    synsets[synset_id] = {'senses': [{'content': s} for s in senses],
+                                          'hypernyms': [{'id': i}
+                                                        for i in hyper_synset_ids]}
+                else:
+                    synsets[synset_id]['hyperhypernyms'] = [{'id': i}
+                                                            for i in hyper_synset_ids]
     return synsets
 
 
@@ -144,6 +146,7 @@ def get_all_related(synset_id: str,
 
 
 def get_cased(s: str, tokenizer: Callable) -> str:
+    s = s.lower()
     if ' ' in s:
         return ' '.join(get_cased(token, tokenizer) for token in s.split())
     cands = [s, s.upper(), s.title()]
@@ -151,6 +154,10 @@ def get_cased(s: str, tokenizer: Callable) -> str:
     cand_lens = [len(tokenizer(c)) for c in cands]
     min_len = min(cand_lens)
     return cands[cand_lens.index(min_len)]
+
+
+def read_json_by_item(f: io.StringIO) -> Iterator[Tuple[Any, Any]]:
+    yield from ijson.kvitems(f, '')
 
 
 if __name__ == "__main__":
