@@ -105,11 +105,11 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
     if by == 'mean':
-        score_fn = lambda scores: sum(scores) / len(scores)
+        aggr_fn = lambda scores: sum(scores) / len(scores)
     elif by == 'max':
-        score_fn = lambda scores: max(scores)
+        aggr_fn = lambda scores: max(scores)
     elif by == 'sum':
-        score_fn = lambda scores: sum(scores)
+        aggr_fn = lambda scores: sum(scores)
     else:
         raise ValueError(f'Wrong value for by \'{by}\'')
 
@@ -120,14 +120,14 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
         if score_hyperhypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
-                            for h_s in wordnet_synsets[s].get('hypernyms', [{'id': s}])]
+                            for h_s in (wordnet_synsets[s].get('hypernyms') or [{'id': s}])]
         for h_synset in cand_synsets:
             if pos and (h_synset[-1].lower() != pos[0]):
                 continue
             synset_scores[h_synset].append(h_score)
-    synset_mean_scores = {synset: score_fn(scores)
+    synset_aggr_scores = {synset: aggr_fn(scores)
                           for synset, scores in synset_scores.items()}
-    return sorted(synset_mean_scores.items(), key=lambda x: x[1], reverse=True)[:k]
+    return sorted(synset_aggr_scores.items(), key=lambda x: x[1], reverse=True)[:k]
 
 
 def load_candidates(fname: Union[str, Path],
