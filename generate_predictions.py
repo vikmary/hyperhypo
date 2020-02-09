@@ -65,36 +65,43 @@ def parse_args():
 def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
                         k: int = 10,
-                        metric: str = 'product') -> List[str]:
+                        metric: str = 'product',
+                        batch_size: int = 8) -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
-    subtoken_idxs, hyponym_masks = [], []
-    for context, l_start, l_end in contexts:
-        subtoken_idxs.append([])
-        hyponym_masks.append([])
-        for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
-            subtokens = model.tokenizer.tokenize(token)
-            subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
-            mask_value = float(i in range(l_start + 1, l_end + 1))
-            hyponym_masks[-1].extend([mask_value] * len(subtokens))
-    batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
 
-    # hypernym_repr_t: [batch_size, hidden_size]
-    hypernym_repr_t, _ = model(*to_device(*batch))
-    # hypernym_repr_avg_t: [hidden_size]
-    hypernym_repr_avg_t = hypernym_repr_t.mean(dim=0)
-    # hypernym_logits_t: [vocab_size]
+    hypernym_repr_t = []
+    for b_start_id in range(0, len(contexts), batch_size):
+        subtoken_idxs, hyponym_masks = [], []
+        for context, l_start, l_end in contexts[b_start_id: b_start_id + batch_size]:
+            subtoken_idxs.append([])
+            hyponym_masks.append([])
+            for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
+                subtokens = model.tokenizer.tokenize(token)
+                subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
+                mask_value = float(i in range(l_start + 1, l_end + 1))
+                hyponym_masks[-1].extend([mask_value] * len(subtokens))
+        batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
+
+        # hypernym_repr_t[-1]: [batch_size, hidden_size]
+        hypernym_repr_t.append(model(*to_device(*batch))[0])
+    # hypernym_repr_t: [num_contexts, hidden_size]
+    hypernym_repr_t = torch.cat(hypernym_repr_t, dim=0)
+    # print(hypernym_repr_t.shape)
+    # hypernym_logits_t: [num_contexts, vocab_size]
     if metric == 'product':
-        hypernym_logits_t = hypernym_repr_avg_t @ model.hypernym_embeddings.T
+        hypernym_logits_t = hypernym_repr_t @ model.hypernym_embeddings.T
     if metric == 'cosine':
         # dot product of normalized vectors is equivalent to cosine
-        # hypernym_logits_t /= model.hypernym_embeddings.norm(dim=1).unsqueeze(0)
-        # hypernym_logits_t /= hypernym_repr_t.norm(dim=1).unsqueeze(1)
-        hypernym_repr_avg_t /= hypernym_repr_avg_t.norm(dim=0)
+        hypernym_repr_t /= hypernym_repr_t.norm(dim=0, keepdim=True)
         hypernym_embeddings_norm_t = model.hypernym_embeddings /\
             model.hypernym_embeddings.norm(dim=1, keepdim=True)
-        hypernym_logits_t = hypernym_repr_avg_t @ hypernym_embeddings_norm_t.T
-    hypernym_logits = hypernym_logits_t.cpu().detach().numpy()
+        hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
+    hypernym_logits_t = torch.log_softmax(hypernym_logits_t, dim=1)
+    # print(hypernym_logits_t.shape)
+    # hypernym_logits_avg_t: [hidden_size]
+    hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
+    hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
     return sorted(zip(model.hypernym_list, hypernym_logits),
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
@@ -252,7 +259,6 @@ if __name__ == "__main__":
                 pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
                                for p, sc in pred_synsets]
                 print(f"Rescored pred synsets({word}): {pred_senses[:4]}")
-            # import ipdb; ipdb.set_trace()
             for s_id, score in pred_synsets:
                 h_senses_str = ','.join(sense['content']
                                         for sense in synsets[s_id]['senses'])
