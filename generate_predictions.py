@@ -20,6 +20,7 @@ from train import device, to_device
 from postprocess_prediction import get_prediction
 from corpus_indexed import CorpusIndexed
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
+from utils import enrich_with_wordnet_relations
 from prepare_corpora.utils import TextPreprocessor
 
 
@@ -63,7 +64,7 @@ def parse_args():
 
 def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
-                        k: int = 100,
+                        k: int = 10,
                         metric: str = 'product') -> List[str]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
@@ -79,19 +80,21 @@ def predict_with_hybert(model: HyBert,
     batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
 
     # hypernym_repr_t: [batch_size, hidden_size]
-    # hypernym_logits_t: [batch_size, vocab_size]
-    hypernym_repr_t, hypernym_logits_t = model(*to_device(*batch))
+    hypernym_repr_t, _ = model(*to_device(*batch))
+    # hypernym_repr_avg_t: [hidden_size]
+    hypernym_repr_avg_t = hypernym_repr_t.mean(dim=0)
+    # hypernym_logits_t: [vocab_size]
+    if metric == 'product':
+        hypernym_logits_t = hypernym_repr_avg_t @ model.hypernym_embeddings.T
     if metric == 'cosine':
         # dot product of normalized vectors is equivalent to cosine
         # hypernym_logits_t /= model.hypernym_embeddings.norm(dim=1).unsqueeze(0)
         # hypernym_logits_t /= hypernym_repr_t.norm(dim=1).unsqueeze(1)
-        hypernym_repr_t /= hypernym_repr_t.norm(dim=1, keepdim=True)
+        hypernym_repr_avg_t /= hypernym_repr_avg_t.norm(dim=0)
         hypernym_embeddings_norm_t = model.hypernym_embeddings /\
             model.hypernym_embeddings.norm(dim=1, keepdim=True)
-        hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
-    # hypernym_logits_avg_t: [vocab_size]
-    hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
-    hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
+        hypernym_logits_t = hypernym_repr_avg_t @ hypernym_embeddings_norm_t.T
+    hypernym_logits = hypernym_logits_t.cpu().detach().numpy()
     return sorted(zip(model.hypernym_list, hypernym_logits),
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
@@ -99,7 +102,7 @@ def predict_with_hybert(model: HyBert,
 def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
                     pos: Optional[str] = None,
                     by: str = 'max',
-                    k: int = 20,
+                    k: int = 10,
                     score_hyperhypernym_synsets: bool = False,
                     wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
@@ -169,6 +172,7 @@ if __name__ == "__main__":
         corpus = None
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     # load fallback predictions if needed
     fallback_preds = []
