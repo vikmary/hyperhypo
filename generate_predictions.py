@@ -5,6 +5,7 @@ import argparse
 import itertools
 import collections
 import datetime
+import math
 from pathlib import Path
 from random import sample
 from typing import List, Dict, Union, Tuple, Optional
@@ -64,7 +65,7 @@ def parse_args():
 
 def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
-                        k: int = 10,
+                        k: int = 30,
                         metric: str = 'product',
                         batch_size: int = 8) -> List[str]:
     if metric not in ('product', 'cosine'):
@@ -119,7 +120,7 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
     elif by == 'max':
         aggr_fn = lambda scores: max(scores)
     elif by == 'sum':
-        aggr_fn = lambda scores: sum(scores)
+        aggr_fn = lambda scores: sum(math.exp(s) for s in scores)
     else:
         raise ValueError(f'Wrong value for by \'{by}\'')
 
@@ -203,7 +204,9 @@ if __name__ == "__main__":
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")
         model_state = model.state_dict()
-        model_state.update({k: v for k, v in torch.load(args.load_checkpoint).items()
+        model_state.update({k: v
+                            for k, v in torch.load(args.load_checkpoint,
+                                                   map_location=device).items()
                             if k != 'hypernym_embeddings'})
     else:
         print(f"Initializing Hybert from ruBert.")
@@ -246,13 +249,14 @@ if __name__ == "__main__":
                     import ipdb; ipdb.set_trace()
                 if args.synset_level:
                     pred_synsets = preds
+                    pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
+                                   for p, sc in pred_synsets]
+                    print(f"Pred synsets ({word}): {pred_senses[:4]}")
                 else:
                     pred_synsets = [(candidates[h], sc) for h, sc in preds]
-                pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
-                               for p, sc in pred_synsets]
-                print(f"Pred synsets ({word}): {pred_senses[:4]}")
+                    print(f"Pred hyponyms ({word}): {preds[:4]}")
                 pred_synsets = rescore_synsets(pred_synsets,
-                                               by='max',
+                                               by='sum',
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
                                                score_hyperhypernym_synsets=True)
