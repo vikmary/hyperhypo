@@ -27,10 +27,12 @@ class HypoDataset(Dataset):
                  debug: bool = False,
                  predict_all_hypes=True,
                  max_len=128,
-                 valid_set_path: Union[str, Path] = None):
+                 valid_set_path: Union[str, Path] = None,
+                 level: str = 'sense'):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
+        self.level = level
 
         train_set = self._read_json(train_set_path)
         self.dataset = self._filter_dataset(train_set)
@@ -86,11 +88,14 @@ class HypoDataset(Dataset):
     def __getitem__(self, item):
         hypo, hypes, hype_hypes = self.dataset[item]
         hypo = hypo.lower()
-        all_hypes = list(chain(*(hypes + hype_hypes)))
+        if self.level == 'sense':
+            all_hypes = list(chain(*(hypes + hype_hypes)))
+        elif self.level == 'synset':
+            # TODO: mode tuplization to train
+            all_hypes = [tuple(h) for h in hypes + hype_hypes]
+
         sent_idx, in_sent_start, in_sent_end = sample(self.hypo_index[hypo], 1)[0]
         sent_toks = self.corpus[sent_idx].split()
-
-
         sent_toks =  sent_toks
         subword_idxs, hypo_mask, subtok_start, subtok_end = \
             self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
@@ -179,11 +184,17 @@ class HypoDataset(Dataset):
             return padded_indices, padded_mask, padded_att_mask
 
 
-def get_hypernyms_list_from_train(train_path: Union[Path, str]) -> List[str]:
+def get_hypernyms_list_from_train(train_path: Union[Path, str],
+                                  level: str = 'sense') -> List[List[str]]:
     train_set = HypoDataset._read_json(train_path)
     hypernyms_set = set()
     for hypos, hypes, hype_hypes in train_set:
-        all_hypes = chain(*(hypes + hype_hypes))
+        if level == 'sense':
+            all_hypes = chain(*(hypes + hype_hypes))
+        elif level == 'synset':
+            all_hypes = [tuple(h) for h in hypes + hype_hypes]
+        else:
+            raise NotImplementedError
         hypernyms_set.update(all_hypes)
     return sorted(hypernyms_set)
 

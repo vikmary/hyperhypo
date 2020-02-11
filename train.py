@@ -35,6 +35,10 @@ def parse_args():
                         help='Path to the directory with model files')
     parser.add_argument('--model-file', type=Path, default='ptrubert.pt')
     parser.add_argument('--only-train-hypes', action='store_true')
+    parser.add_argument('--trainable-embeddings', action='store_true')
+    parser.add_argument('--model-name', type=str, default='checkpoint',
+                        help='The name to save the model')
+    parser.add_argument('--synset-level', action='store_true')
     args = parser.parse_args()
 
     mode = 'train' if args.only_train_hypes else 'full'
@@ -76,9 +80,11 @@ def parse_args():
 def main():
 
     args = parse_args()
-
-    hype_list = get_hypernyms_list_from_train(args.train_path)
-    valid_hype_list = get_hypernyms_list_from_train(args.valid_path)
+    level = 'synset' if args.synset_level else 'sense'
+    hype_list = get_hypernyms_list_from_train(args.train_path, level)
+    # print(hype_list)
+    # raise RuntimeError
+    valid_hype_list = get_hypernyms_list_from_train(args.valid_path, level)
     hype_list.extend(valid_hype_list)
 
     config = BertConfig.from_pretrained(args.config_path)
@@ -97,7 +103,8 @@ def main():
                      args.index_path,
                      args.train_path,
                      hype_list,
-                     valid_set_path=args.valid_path)
+                     valid_set_path=args.valid_path,
+                     level=level)
 
     print(f'Train set len: {len(ds.get_train_idxs())}')
     print(f'Valid set len: {len(ds.get_valid_idxs())}')
@@ -105,14 +112,17 @@ def main():
     valid_sampler = SubsetRandomSampler(ds.get_valid_idxs())
 
     # TODO: add optional batch size
-    dl_train = DataLoader(ds, batch_size=16, collate_fn=batch_collate,
-                          sampler=train_sampler)
-    dl_valid = DataLoader(ds, batch_size=16, collate_fn=batch_collate,
+    dl_train = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
+                      sampler=train_sampler)
+    dl_valid = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
                           sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
     # TODO: add option for passing model.bert.parameters to train embeddings
-    optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=2e-5)
+    if args.trainable_embeddings:
+        optimizer = torch.optim.Adam(model.bert.parameters(), lr=2e-5)
+    else:
+        optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=2e-5)
     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
     #                                               1e-5,
     #                                               3e-5,
@@ -120,7 +130,7 @@ def main():
     #                                               step_size_down=100000,
     #                                               cycle_momentum=False)
 
-    writer = SummaryWriter()
+    writer = SummaryWriter(f'runs/{args.model_name}')
 
     # TODO: add warmap
     # TODO: add gradient accumulation
@@ -131,7 +141,7 @@ def main():
     best_loss = 1e9
     best_val_loss = 1e9
 
-    ecpochs = 10
+    ecpochs = 1000
     save_every = 5000
     for epoch in range(ecpochs):
         print(f'Epoch: {epoch}')
@@ -169,25 +179,25 @@ def main():
         val_loss = 0
         val_count = 0
         with torch.no_grad():
-            for batch in tqdm(dl_valid):
-                idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(
-                    *batch)
-                model.zero_grad()
-                _, response = model(idxs_batch, mask_batch, attention_masks_batch)
-                loss = criterion(response, hype_idxs)
-                loss = torch.sum(loss)
-                val_count += len(idxs_batch)
-                val_loss += loss.detach().cpu().numpy()
+            # Average on 10 runs due to sampling of indexed examples
+            for _ in tqdm(range(10)):
+                for batch in dl_valid:
+                    idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(
+                        *batch)
+                    model.zero_grad()
+                    _, response = model(idxs_batch, mask_batch, attention_masks_batch)
+                    loss = criterion(response, hype_idxs)
+                    loss = torch.sum(loss)
+                    val_count += len(idxs_batch)
+                    val_loss += loss.detach().cpu().numpy()
         val_loss = val_loss / val_count
         print(f'Validation loss: {val_loss}')
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             print(f'Better loss achieved {val_loss}! Saving model.')
             # TODO: add model name
-            torch.save(model.state_dict(), 'models/checkpoint_val.pt')
-
-
-
+            torch.save(model.state_dict(), f'models/{args.model_name}.pt')
+        writer.add_scalar('log-loss-val', val_loss, epoch)
 
     writer.close()
 
