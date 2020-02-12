@@ -43,29 +43,20 @@ if __name__ == "__main__":
                                             do_lower_case=False).tokenize
         print("Using bert tokenizer to detect case of words.")
 
-    train_tuples = []
+    train_dict = {}
     for synset_id, synset in tqdm(train_synsets.items()):
         senses = [s['content'] for s in synset['senses']]
         # construct hypernyms
         hypernym_ids = [h['id'] for h in synset['hypernyms']]
         hypernyms = [[s['content'] for s in synsets[h_id]['senses']]
                      for h_id in hypernym_ids]
-        # construct hypernyms of hypernyms
-        hyperhypernym_ids = set()
-        for h_id in hypernym_ids:
-            hyperhypernym_ids.update(hh['id']
-                                     for hh in synsets[h_id].get('hypernyms', []))
-        hyperhypernyms = [[s['content'] for s in synsets[hh_id]['senses']]
-                          for hh_id in hyperhypernym_ids]
 
         if args.bert_model_path is not None:
-            train_tuples.append((
-                [get_cased(preprocessor(s), tok) for s in senses],
-                [[get_cased(preprocessor(h), tok) for h in h_s] for h_s in hypernyms],
-                [[get_cased(preprocessor(hh), tok) for hh in hh_s]
-                 for hh_s in hyperhypernyms]))
-        else:
-            train_tuples.append((senses, hypernyms, hyperhypernyms))
+            senses = [get_cased(preprocessor(s), tok) for s in senses]
+            hypernyms = [[get_cased(preprocessor(h), tok) for h in h_list]
+                         for h_list in hypernyms]
+        for sense in senses:
+            train_dict[sense] = (senses, hypernyms)
 
     print(f"Writing output json to {args.output_path}.")
-    json.dump(train_tuples, open(args.output_path, 'wt'), indent=2, ensure_ascii=False)
+    json.dump(train_dict, open(args.output_path, 'wt'), indent=2, ensure_ascii=False)
