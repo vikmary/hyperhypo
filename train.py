@@ -113,7 +113,7 @@ def main():
 
     # TODO: add optional batch size
     dl_train = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
-                      sampler=train_sampler)
+                          sampler=train_sampler)
     dl_valid = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
                           sampler=valid_sampler)
 

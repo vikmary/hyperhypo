@@ -5,6 +5,7 @@ import io
 import sys
 import json
 import ijson
+import collections
 from typing import Union, List, Dict, Iterator, Callable, Tuple, Any
 from pathlib import Path
 import random
@@ -35,7 +36,48 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
     return senses
 
 
-def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
+def get_train_synsets(fpaths: Iterator[Union[str, Path]],
+                      synset_fpath: Union[str, Path, None] = None) -> Dict:
+    """Gets synsets with id as key, senses and hypernyms as values."""
+    # Load hypernyms for each list of senses
+    hypernyms2senses = collections.defaultdict(list)
+    for fp in fpaths:
+        sys.stderr.write(f"Parsing {fp}.\n")
+        with open(fp, 'rt') as fin:
+            reader = csv.reader(fin, delimiter='\t')
+            for row in reader:
+                sense, hyper_synset_ids = row[:2]
+                hyper_synset_ids = tuple(json.loads(hyper_synset_ids))
+                hypernyms2senses[hyper_synset_ids].append(sense)
+    # Load mapping from senses 2 synsets
+    if synset_fpath is not None:
+        senses2synset = {}
+        sys.stderr.write(f"Parsing {synset_fpath}.\n")
+        with open(synset_fpath, 'rt') as fin:
+            # skip header
+            fin.readline()
+            for ln in fin:
+                synset_id, senses = ln.split('\t')[:2]
+                senses = [s.strip() for s in senses.split(',')]
+                senses2synset[tuple(sorted(senses))] = synset_id
+    else:
+        sys.stderr.write(f"No synset info provided for {fpaths},"
+                         " will generate hashes in place of synset ids.\n")
+    # Construct synsets dictionary
+    synsets = {}
+    for hyper_ids, senses in hypernyms2senses.items():
+        if synset_fpath is not None:
+            synset_id = senses2synset[tuple(sorted(senses))]
+        else:
+            synset_id = hash(tuple(sorted(senses)))
+        synsets[synset_id] = {
+            'senses': [{'content': s} for s in senses],
+            'hypernyms': [{'id': h_id} for h_id in hyper_ids]
+        }
+    return synsets
+
+
+def get_train_synsets2(fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key, senses and hyperonyms as values."""
     # TODO: add new function enrich_with_wordnet_senses
     synsets = {}
@@ -49,12 +91,14 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
                 senses = [s.strip() for s in senses.split(',')]
                 hyper_synset_ids = json.loads(hyper_synset_ids.replace("'", '"'))
                 if synset_id not in synsets:
-                    synsets[synset_id] = {'senses': [{'content': s} for s in senses],
-                                          'hypernyms': [{'id': i}
-                                                        for i in hyper_synset_ids]}
+                    synsets[synset_id] = {
+                        'senses': [{'content': s} for s in senses],
+                        'hypernyms_grouped': [[{'id': i} for i in hyper_synset_ids]]
+                    }
                 else:
-                    synsets[synset_id]['hyperhypernyms'] = [{'id': i}
-                                                            for i in hyper_synset_ids]
+                    synsets[synset_id]['hypernyms_grouped'].append([
+                        {'id': i} for i in hyper_synset_ids
+                    ])
     return synsets
 
 
