@@ -11,7 +11,7 @@ from torch import Tensor, LongTensor
 from transformers import BertModel, BertConfig, BertTokenizer
 
 from dataset import get_hypernyms_list_from_train
-from embedder import get_word_embeddings
+from embedder import get_embedding
 
 
 class HyBert(nn.Module):
@@ -31,7 +31,7 @@ class HyBert(nn.Module):
 
         hype_embeddings = []
         for phrases in hypernym_list:
-            phrases_embs = get_word_embeddings(phrases, embeddings, self.tokenizer)
+            phrases_embs = get_embedding(phrases, embeddings, self.tokenizer)
             hype_embeddings.append(phrases_embs.sum(dim=0) / len(phrases))
         hype_embeddings = torch.stack(hype_embeddings, dim=0)
 

@@ -8,10 +8,10 @@ import torch
 from transformers import BertConfig, BertTokenizer, BertModel
 
 
-def get_word_embeddings(words: List[str],
-                        emb_mat: torch.Tensor,
-                        tokenizer: BertTokenizer,
-                        debug: bool = False) -> torch.Tensor:
+def get_embedding(words: List[str],
+                  emb_mat: torch.Tensor,
+                  tokenizer: BertTokenizer,
+                  debug: bool = False) -> torch.Tensor:
     # emb_mat: [vocab_size, emb_size]
     # returns: [num_words, emb_size]
     subword_ids, subword_masks = [], []
@@ -48,21 +48,21 @@ if __name__ == "__main__":
 
     emb_mat = model.embeddings.word_embeddings.weight
 
-    res = get_word_embeddings(['мыть', 'мама'], emb_mat, tokenizer=tokenizer)
+    res = get_embedding(['мыть', 'мама'], emb_mat, tokenizer=tokenizer)
     print(res.shape)
     print('norms =', res.norm(dim=1))
 
-    res0 = get_word_embeddings(['том', 'бук', 'Двина'], emb_mat, tokenizer=tokenizer)
+    res0 = get_embedding(['том', 'бук', 'Двина'], emb_mat, tokenizer=tokenizer)
     print(res0.shape)
     print('norms =', res0.norm(dim=1))
 
 
-    res1 = get_word_embeddings(['Литва', 'Литовская Республика', 'ывралыва'], emb_mat,
-                              tokenizer=tokenizer)[1]
+    res1 = get_embedding(['Литва', 'Литовская Республика', 'ывралыва'], emb_mat,
+                         tokenizer=tokenizer)[1]
     print(res1.shape)
 
-    res2 = get_word_embeddings(['Литовская', 'Республика'], emb_mat,
-                               tokenizer=tokenizer).sum(dim=0) / 2
+    res2 = get_embedding(['Литовская', 'Республика'], emb_mat,
+                         tokenizer=tokenizer).sum(dim=0) / 2
     print('norms =', res2.norm(dim=0))
     print(res2.shape)
 
