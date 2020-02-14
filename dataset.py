@@ -184,18 +184,22 @@ class HypoDataset(Dataset):
             return padded_indices, padded_mask, padded_att_mask
 
 
-def get_hypernyms_list_from_train(train_path: Union[Path, str],
+def get_hypernyms_list_from_train(train: Union[Path, str, List],
                                   level: str = 'sense') -> List[List[str]]:
-    train_set = HypoDataset._read_json(train_path)
+    if isinstance(train, (str, Path)):
+        train_set = HypoDataset._read_json(train)
+    else:
+        train_set = train
     hypernyms_set = set()
-    for hypos, hypes, hype_hypes in train_set:
-        if level == 'sense':
-            all_hypes = chain(*(hypes + hype_hypes))
-        elif level == 'synset':
-            all_hypes = [tuple(h) for h in hypes + hype_hypes]
-        else:
-            raise NotImplementedError
-        hypernyms_set.update(all_hypes)
+    for hypo, hypo_staff in train_set.items():
+        for hypo_synset, hypes in hypo_staff:
+            if level == 'sense':
+                all_hypes = [(h, ) for h in chain(*hypes)]
+            elif level == 'synset':
+                all_hypes = [tuple(h) for h in hypes]
+            else:
+                raise NotImplementedError
+            hypernyms_set.update(all_hypes)
     return sorted(hypernyms_set)
 
 
