@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument('--batch-size', default=1, type=int,
                         help='batch size for a single test word'
                         ' (equals number of averaged contexts)')
-    parser.add_argument('--max-context-length', '-m', default=510, type=int,
+    parser.add_argument('--max-context-length', '-m', default=512, type=int,
                         help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
@@ -65,7 +65,7 @@ def parse_args():
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
     return parser.parse_args()
- 
+
 
 def get_indices_and_masks(sent_tokens: List[str],
                           in_sent_start: int,
@@ -75,6 +75,7 @@ def get_indices_and_masks(sent_tokens: List[str],
     sent_subword_idxs = []
     sent_subwords = []
     sent_hypo_mask = []
+    new_in_sent_start, new_in_sent_end = None, None
     for n, tok in enumerate(sent_tokens):
         if n == in_sent_start:
             new_in_sent_start = len(sent_subwords)
@@ -87,6 +88,9 @@ def get_indices_and_masks(sent_tokens: List[str],
         sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
         if n == in_sent_end - 1:
             new_in_sent_end = len(sent_subwords) + 1
+    if new_in_sent_start is None or new_in_sent_end is None:
+        raise ValueError(f'wrong index: context {context} doesn\'t contain pos'
+                         f' ({in_sent_start}, {in_sent_end})')
     return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
 
 
@@ -95,7 +99,7 @@ def predict_with_hybert(model: HyBert,
                         k: int = 30,
                         metric: str = 'product',
                         batch_size: int = 8,
-                        max_length: int = 510) -> List[Tuple[List[str], float]]:
+                        max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
 
@@ -110,12 +114,13 @@ def predict_with_hybert(model: HyBert,
                                                    hypo_mask,
                                                    subtok_start,
                                                    subtok_end,
-                                                   length=max_length)
+                                                   length=max_length - 2)
             cls_idx, sep_idx = model.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
             b_subtok_idxs.append([cls_idx] + subtok_idxs + [sep_idx])
             b_hypo_masks.append([0.0] + hypo_mask + [0.0])
         batch = HypoDataset.torchify_and_pad(b_subtok_idxs, b_hypo_masks)
 
+        print(batch[0].shape)
         # print('indices', batch[0])
         # print('hypo_mask', batch[1])
         # print('attn_mask', batch[2])
@@ -266,10 +271,10 @@ if __name__ == "__main__":
                     if word in fallback_preds:
                         pred_synsets = zip(fallback_preds[word], itertools.repeat('nan'))
                     else:
-                        contexts = contexts or [([word.lower()], 0, len(word.split()))]
+                        contexts = contexts or [(word.lower().split(), 0, len(word.split()))]
                         print(f"Warning: {word} not in fallback_predictions")
                 else:
-                    contexts = contexts or [([word.lower()], 0, len(word.split()))]
+                    contexts = contexts or [(word.lower().split(), 0, len(word.split()))]
             if contexts:
                 random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
