@@ -25,9 +25,9 @@ class HypoDataset(Dataset):
                  train_set_path: Union[str, Path],
                  hypernym_list: List[str],
                  debug: bool = False,
-                 predict_all_hypes=True,
-                 max_len=128,
-                 valid_set_path: Union[str, Path] = None,
+                 predict_all_hypes: bool = True,
+                 max_len: int = 128,
+                 valid_set_path: Union[str, Path, None] = None,
                  level: str = 'sense'):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
@@ -104,14 +104,14 @@ class HypoDataset(Dataset):
 
         sent_idx, in_sent_start, in_sent_end = choice(self.hypo_index[hypo])
         sent_toks = self.corpus[sent_idx].split()
-        sent_toks =  sent_toks
         subword_idxs, hypo_mask, subtok_start, subtok_end = \
             self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
-        if len(subword_idxs) > self.max_len:
-            half_max_len = self.max_len // 2
-            new_start = max(0, subtok_start - half_max_len)
-            subword_idxs = subword_idxs[new_start: new_start + self.max_len]
-            hypo_mask = hypo_mask[new_start: new_start + self.max_len]
+        subword_idxs, hypo_mask, subtok_start, subtok_end = \
+            self._cut_to_maximum_length(subword_idxs,
+                                        hypo_mask,
+                                        subtok_start,
+                                        subtok_end,
+                                        self.max_len)
         cls_idx, sep_idx = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
         subword_idxs = [cls_idx] + subword_idxs + [sep_idx]
         hypo_mask = [0.0] + hypo_mask + [0.0]
@@ -135,7 +135,8 @@ class HypoDataset(Dataset):
     def _get_indices_and_masks(self,
                                sent_tokens: List[str],
                                in_sent_start: int,
-                               in_sent_end: int):
+                               in_sent_end: int) \
+            -> Tuple[List[int], List[float], int, int]:
         sent_subword_idxs = []
         sent_subwords = []
         sent_hypo_mask = []
@@ -153,14 +154,39 @@ class HypoDataset(Dataset):
                 new_in_sent_end = len(sent_subwords) + 1
         return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
 
+    @staticmethod
+    def _cut_to_maximum_length(subword_idxs: List[str],
+                               hypo_mask: List[str],
+                               subtok_start: int,
+                               subtok_end: int,
+                               length: int) -> Tuple[List[str], List[str], int, int]:
+        if len(subword_idxs) > length:
+            half_len = length // 2
+            new_start = max(0, subtok_start - half_len)
+            subword_idxs = subword_idxs[new_start: new_start + length]
+            hypo_mask = hypo_mask[new_start: new_start + length]
+
+            new_subtok_start = subtok_start - new_start
+            new_subtok_end = subtok_end - new_start
+            return subword_idxs, hypo_mask, new_subtok_start, new_subtok_end
+        return subword_idxs, hypo_mask, subtok_start, subtok_end
+
     def get_all_hypo_samples(self,
                              hypo: str) \
                              -> Tuple[List[Union[torch.Tensor, List[int], List[float]]]]:
+        # TODO: is the method used anywhere?
         hypo_mentions = self.hypo_index[hypo]
         sents_indices, sents_hypo_masks = [], []
         for sent_idx, in_sent_start, in_sent_end  in hypo_mentions:
             sent_toks = self.corpus[sent_idx].split()
-            subword_idxs, hypo_mask = self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
+            subword_idxs, hypo_mask, subtok_start, subtok_end = \
+                self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
+            subword_idxs, hypo_mask, subtok_start, subtok_end = \
+                        self._cut_to_maximum_length(subword_idxs,
+                                                    hypo_mask,
+                                                    subtok_start,
+                                                    subtok_end,
+                                                    self.max_len)
             sents_indices.append(subword_idxs)
             sents_hypo_masks.append(hypo_mask)
         batch_parts = self.torchify_and_pad(sents_indices, sents_hypo_masks)
