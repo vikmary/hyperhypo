@@ -30,6 +30,8 @@ def parse_args():
     # Test words parameters
     parser.add_argument('--data-path', '-d', type=Path, required=True,
                         help='dataset path to get predictions for')
+    parser.add_argument('--synset-info-paths', '-s', type=Path, nargs='+',
+                        help='paths to synset info for data if is-train-format')
     parser.add_argument('--pos', type=str, default=None,
                         help='filter hypernyms of only this type of pos')
     parser.add_argument('--is-train-format', '-T', action='store_true',
@@ -55,40 +57,72 @@ def parse_args():
     parser.add_argument('--batch-size', default=1, type=int,
                         help='batch size for a single test word'
                         ' (equals number of averaged contexts)')
+    parser.add_argument('--max-context-length', '-m', default=510, type=int,
+                        help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
     return parser.parse_args()
+ 
+
+def get_indices_and_masks(sent_tokens: List[str],
+                          in_sent_start: int,
+                          in_sent_end: int,
+                          tokenizer: BertTokenizer) \
+        -> Tuple[List[int], List[float], int, int]:
+    sent_subword_idxs = []
+    sent_subwords = []
+    sent_hypo_mask = []
+    for n, tok in enumerate(sent_tokens):
+        if n == in_sent_start:
+            new_in_sent_start = len(sent_subwords)
+        subtokens = tokenizer.tokenize(tok)
+        sent_subwords.extend(subtokens)
+        subtok_idxs = tokenizer.convert_tokens_to_ids(subtokens)
+        sent_subword_idxs.extend(subtok_idxs)
+        # NOTE: absence of + 1 because absence of [CLS] token in the beginning
+        mask_value = float(in_sent_start <= n < in_sent_end)
+        sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
+        if n == in_sent_end - 1:
+            new_in_sent_end = len(sent_subwords) + 1
+    return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
 
 
 def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
                         k: int = 30,
                         metric: str = 'product',
-                        batch_size: int = 8) -> List[str]:
+                        batch_size: int = 8,
+                        max_length: int = 510) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
 
     hypernym_repr_t = []
     for b_start_id in range(0, len(contexts), batch_size):
-        subtoken_idxs, hyponym_masks = [], []
+        b_subtok_idxs, b_hypo_masks = [], []
         for context, l_start, l_end in contexts[b_start_id: b_start_id + batch_size]:
-            subtoken_idxs.append([])
-            hyponym_masks.append([])
-            for i, token in enumerate(['[CLS]'] + context + ['[SEP]']):
-                subtokens = model.tokenizer.tokenize(token)
-                subtoken_idxs[-1].extend(model.tokenizer.convert_tokens_to_ids(subtokens))
-                mask_value = float(i in range(l_start + 1, l_end + 1))
-                hyponym_masks[-1].extend([mask_value] * len(subtokens))
-        batch = HypoDataset.torchify_and_pad(subtoken_idxs, hyponym_masks)
+            subtok_idxs, hypo_mask, subtok_start, subtok_end = \
+                get_indices_and_masks(context, l_start, l_end, model.tokenizer)
+            subtok_idxs, hypo_mask, subtok_start, subtok_end = \
+                HypoDataset._cut_to_maximum_length(subtok_idxs,
+                                                   hypo_mask,
+                                                   subtok_start,
+                                                   subtok_end,
+                                                   length=max_length)
+            cls_idx, sep_idx = model.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
+            b_subtok_idxs.append([cls_idx] + subtok_idxs + [sep_idx])
+            b_hypo_masks.append([0.0] + hypo_mask + [0.0])
+        batch = HypoDataset.torchify_and_pad(b_subtok_idxs, b_hypo_masks)
 
+        # print('indices', batch[0])
+        # print('hypo_mask', batch[1])
+        # print('attn_mask', batch[2])
         # hypernym_repr_t[-1]: [batch_size, hidden_size]
         hypernym_repr_t.append(model(*to_device(*batch))[0])
     # hypernym_repr_t: [num_contexts, hidden_size]
     hypernym_repr_t = torch.cat(hypernym_repr_t, dim=0)
-    # print(hypernym_repr_t.shape)
     # hypernym_logits_t: [num_contexts, vocab_size]
     if metric == 'product':
         hypernym_logits_t = hypernym_repr_t @ model.hypernym_embeddings.T
@@ -99,7 +133,6 @@ def predict_with_hybert(model: HyBert,
             model.hypernym_embeddings.norm(dim=1, keepdim=True)
         hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
     hypernym_logits_t = torch.log_softmax(hypernym_logits_t, dim=1)
-    # print(hypernym_logits_t.shape)
     # hypernym_logits_avg_t: [hidden_size]
     hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
     hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
@@ -142,15 +175,17 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
 
 
 def load_candidates(fname: Union[str, Path],
-                    synset2sense: bool = False) -> Dict[str, List[str]]:
+                    senses2synset: bool = False) -> Dict[str, List[str]]:
     cands = collections.defaultdict(list)
     with open(fname, 'rt') as fin:
         for row in fin:
             cand_word, cand_synset_id = row.split('\t', 2)[:2]
-            if synset2sense:
+            if senses2synset:
                 cands[cand_synset_id].append(cand_word)
             else:
                 cands[cand_word].append(cand_synset_id)
+    if senses2synset:
+        return {tuple(senses): synset_id for synset_id, senses in cands.items()}
     return cands
 
 
@@ -164,7 +199,7 @@ if __name__ == "__main__":
 
     # load wordnet and word to get prediction for
     if args.is_train_format:
-        test_synsets = get_train_synsets([args.data_path])
+        test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
         test_senses = [s['content'] for s in synsets2senses(test_synsets)]
     else:
         test_senses = [s['content'] for s in get_test_senses([args.data_path])]
@@ -195,18 +230,17 @@ if __name__ == "__main__":
                                      config=config)
 
     if args.synset_level:
-        candidates = load_candidates(args.candidates, synset2sense=True)
-        model = HyBert(bert, tokenizer, candidates, level='synset')
+        candidates = load_candidates(args.candidates, senses2synset=True)
+        model = HyBert(bert, tokenizer, list(candidates.keys()))
     else:
         candidates = load_candidates(args.candidates)
-        model = HyBert(bert, tokenizer, list(candidates.keys()), level='sense')
+        model = HyBert(bert, tokenizer, [[k] for k in candidates])
     model.to(device)
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")
         model_state = model.state_dict()
-        model_state.update({k: v
-                            for k, v in torch.load(args.load_checkpoint,
-                                                   map_location=device).items()
+        model_state.update({k: v for k, v in torch.load(args.load_checkpoint,
+                                                        map_location=device).items()
                             if k != 'hypernym_embeddings'})
     else:
         print(f"Initializing Hybert from ruBert.")
@@ -225,7 +259,7 @@ if __name__ == "__main__":
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
             contexts = []
             if corpus:
-                contexts = corpus.get_contexts(lemma, max_num_tokens=250) or contexts
+                contexts = corpus.get_contexts(lemma) or contexts
             if not contexts:
                 n_skipped += 1
                 if fallback_preds:
@@ -243,17 +277,18 @@ if __name__ == "__main__":
                     preds = predict_with_hybert(model,
                                                 random_contexts,
                                                 metric=args.metric,
-                                                k=30)
+                                                k=30,
+                                                max_length=args.max_context_length)
                 except Exception as msg:
                     print(f"captured exception with msg = '{msg}'")
                     import ipdb; ipdb.set_trace()
                 if args.synset_level:
-                    pred_synsets = preds
+                    pred_synsets = [([candidates[h]], sc) for h, sc in preds]
                     pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
                                    for p, sc in pred_synsets]
                     print(f"Pred synsets ({word}): {pred_senses[:4]}")
                 else:
-                    pred_synsets = [(candidates[h], sc) for h, sc in preds]
+                    pred_synsets = [(candidates[h[0]], sc) for h, sc in preds]
                     print(f"Pred hyponyms ({word}): {preds[:4]}")
                 pred_synsets = rescore_synsets(pred_synsets,
                                                by='sum',
