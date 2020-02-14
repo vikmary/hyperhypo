@@ -3,6 +3,7 @@
 
 import json
 import argparse
+import collections
 from pathlib import Path
 from tqdm import tqdm
 
@@ -15,6 +16,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data-paths', '-t', type=Path, nargs='+',
                         help='path(s) to training data')
+    parser.add_argument('--synset-info-paths', '-s', type=Path, nargs='+',
+                        help='paths to synset info for training data')
     parser.add_argument('--wordnet-dir', '-w', type=Path,
                         help='path to a wordnet directory')
     parser.add_argument('--bert-model-path', '-b', type=Path, required=False,
@@ -32,7 +35,7 @@ if __name__ == "__main__":
                                     lowercase=True,
                                     lemmatize=True)
 
-    train_synsets = get_train_synsets(args.data_paths)
+    train_synsets = get_train_synsets(args.data_paths, args.synset_info_paths)
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
@@ -43,7 +46,7 @@ if __name__ == "__main__":
                                             do_lower_case=False).tokenize
         print("Using bert tokenizer to detect case of words.")
 
-    train_dict = {}
+    train_dict = collections.defaultdict(list)
     for synset_id, synset in tqdm(train_synsets.items()):
         senses = [s['content'] for s in synset['senses']]
         # construct hypernyms
@@ -56,7 +59,7 @@ if __name__ == "__main__":
             hypernyms = [[get_cased(preprocessor(h), tok) for h in h_list]
                          for h_list in hypernyms]
         for sense in senses:
-            train_dict[sense] = (senses, hypernyms)
+            train_dict[sense].append((senses, hypernyms))
 
     print(f"Writing output json to {args.output_path}.")
     json.dump(train_dict, open(args.output_path, 'wt'), indent=2, ensure_ascii=False)

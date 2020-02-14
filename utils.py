@@ -37,10 +37,25 @@ def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 
 def get_train_synsets(fpaths: Iterator[Union[str, Path]],
-                      synset_fpath: Union[str, Path, None] = None) -> Dict:
+                      synset_info_fpaths: Iterator[Union[str, Path]]) -> Dict:
     """Gets synsets with id as key, senses and hypernyms as values."""
+    # Load mapping from senses 2 synsets
+    sense2synsets = collections.defaultdict(set)
+    synset2senses = {}
+    for fp in synset_info_fpaths:
+        sys.stderr.write(f"Parsing {fp}.\n")
+        with open(fp, 'rt') as fin:
+            # skip header
+            fin.readline()
+            for ln in fin:
+                synset_id, senses = ln.split('\t')[:2]
+                senses = [s.strip() for s in senses.split(',')]
+                if synset_id not in synset2senses:
+                    synset2senses[synset_id] = set(senses)
+                    for sense in senses:
+                        sense2synsets[sense].add(synset_id)
     # Load hypernyms for each list of senses
-    hypernyms2senses = collections.defaultdict(list)
+    hypernyms2senses = collections.defaultdict(set)
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
@@ -48,32 +63,22 @@ def get_train_synsets(fpaths: Iterator[Union[str, Path]],
             for row in reader:
                 sense, hyper_synset_ids = row[:2]
                 hyper_synset_ids = tuple(json.loads(hyper_synset_ids))
-                hypernyms2senses[hyper_synset_ids].append(sense)
-    # Load mapping from senses 2 synsets
-    if synset_fpath is not None:
-        senses2synset = {}
-        sys.stderr.write(f"Parsing {synset_fpath}.\n")
-        with open(synset_fpath, 'rt') as fin:
-            # skip header
-            fin.readline()
-            for ln in fin:
-                synset_id, senses = ln.split('\t')[:2]
-                senses = [s.strip() for s in senses.split(',')]
-                senses2synset[tuple(sorted(senses))] = synset_id
-    else:
-        sys.stderr.write(f"No synset info provided for {fpaths},"
-                         " will generate hashes in place of synset ids.\n")
+                hypernyms2senses[hyper_synset_ids].add(sense)
     # Construct synsets dictionary
     synsets = {}
     for hyper_ids, senses in hypernyms2senses.items():
-        if synset_fpath is not None:
-            synset_id = senses2synset[tuple(sorted(senses))]
-        else:
-            synset_id = hash(tuple(sorted(senses)))
-        synsets[synset_id] = {
-            'senses': [{'content': s} for s in senses],
-            'hypernyms': [{'id': h_id} for h_id in hyper_ids]
-        }
+        synset_ids = set(synset_id
+                         for sense in senses
+                         for synset_id in sense2synsets[sense]
+                         if synset2senses[synset_id].issubset(senses))
+        if set(s for s_id in synset_ids for s in synset2senses[s_id]) != senses:
+            print(f'Warning: no full synset info for senses {senses}.'
+                  f' Found only {synset_ids} synset ids.')
+        for synset_id in synset_ids:
+            synsets[synset_id] = {
+                'senses': [{'content': s} for s in synset2senses[synset_id]],
+                'hypernyms': [{'id': h_id} for h_id in hyper_ids]
+            }
     return synsets
 
 
