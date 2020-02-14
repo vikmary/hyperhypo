@@ -4,7 +4,7 @@
 import json
 from itertools import chain
 from pathlib import Path
-from random import randint, sample, shuffle
+from random import choice
 from typing import Union, List, Tuple, Optional, Iterable
 
 import torch
@@ -40,7 +40,15 @@ class HypoDataset(Dataset):
         if valid_set_path is not None:
             valid_set = self._read_json(valid_set_path)
             valid_set = self._filter_dataset(valid_set)
-            self.dataset.extend(valid_set)
+            self.dataset.update(valid_set)
+        self.hypos = list(self.dataset)
+
+        self.all_hypes_sense = {}
+        self.all_hypes_synset = {}
+        for hypo, hypos_hypes in self.dataset.items():
+            hypo = hypo.lower()
+            self.all_hypes_sense[hypo] = chain(*[hh[1] for hh in hypos_hypes])
+            self.all_hypes_synset[hypo] = [tuple(hh[1]) for hh in hypos_hypes]
 
         self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
@@ -83,18 +91,18 @@ class HypoDataset(Dataset):
             return handle.readlines()
 
     def __len__(self):
-        return len(self.train_set)
+        return len(self.dataset)
 
     def __getitem__(self, item):
-        hypo, hypes, hype_hypes = self.dataset[item]
-        hypo = hypo.lower()
+        senses_synsets = self.dataset[self.hypos[item]]
+        hypo = self.hypos[item].lower()
         if self.level == 'sense':
-            all_hypes = list(chain(*(hypes + hype_hypes)))
+            all_hypes = self.all_hypes_sense[hypo]
         elif self.level == 'synset':
             # TODO: mode tuplization to train
-            all_hypes = [tuple(h) for h in hypes + hype_hypes]
+            all_hypes = self.all_hypes_synset[hypo]
 
-        sent_idx, in_sent_start, in_sent_end = sample(self.hypo_index[hypo], 1)[0]
+        sent_idx, in_sent_start, in_sent_end = choice(self.hypo_index[hypo])
         sent_toks = self.corpus[sent_idx].split()
         sent_toks =  sent_toks
         subword_idxs, hypo_mask, subtok_start, subtok_end = \
@@ -119,7 +127,7 @@ class HypoDataset(Dataset):
             for hype_idx in hype_idxs:
                 hype_prob[hype_idx] = single_hype_prob
         else:
-            hype = sample(all_hypes, 1)[0]
+            hype = choice(all_hypes)
             hype_idx = self.hypernym_to_idx[hype]
             hype_prob[hype_idx] = 1.0
         return subword_idxs, hypo_mask, hype_prob
