@@ -21,36 +21,39 @@ def parse_args():
                         help='path to lemmatized corpora')
     parser.add_argument('--train-paths', '-t', type=Path, nargs='+',
                         help='path(s) to text file(s) with training data')
+    parser.add_argument('--synset-info-paths', '-s', type=Path, nargs='+',
+                        help='paths to synset info for training data')
     parser.add_argument('--max-lines', '-l', type=int, default=None,
                         help='take only first l lines of corpus')
-    parser.add_argument('--max-sentences', '-s', type=int, default=300,
-                        help='max sentences for each word in index')
+    parser.add_argument('--max-lines-per-item', '-m', type=int, default=300,
+                        help='max utterances for each word in index')
     return parser.parse_args()
 
 
 def build_index(utterances: Iterator[str],
                 max_utterances: int,
-                max_sentences: Optional[int] = None) -> Dict[str, collections.Counter]:
+                max_utterances_per_item: Optional[int] = None) -> Dict[str, collections.Counter]:
     # prioritize_with_max_length: int = 200
     index = collections.defaultdict(collections.Counter)
+    max_utters_i = max_utterances_per_item
 
     for i_u, utter in tqdm(enumerate(utterances), total=max_utterances):
         if i_u >= max_utterances:
             break
         utter_lemmas = utter.split()
-        # TODO: support finding phrases of several words
         for i_t, utter_lemma in enumerate(utter_lemmas):
-            if max_sentences and (len(index[utter_lemma]) >= max_sentences):
-                continue
+            if not max_utters_i or (len(index[utter_lemma]) < max_utters_i):
+                index[utter_lemma][(i_u, i_t, i_t+1)] += 1
                 # if len(utter_lemmas) < prioritize_with_max_length:
                 #     index[utter_lemma][(i_u, i_t)] += 1
-            index[utter_lemma][(i_u, i_t, i_t+1)] += 1
             if i_t + 1 < len(utter_lemmas):
                 utter_bilemma = ' '.join(utter_lemmas[i_t:i_t+2])
-                index[utter_bilemma][(i_u, i_t, i_t+2)] += 1
+                if not max_utters_i or (len(index[utter_bilemma]) < max_utters_i):
+                    index[utter_bilemma][(i_u, i_t, i_t+2)] += 1
                 if i_t + 2 < len(utter_lemmas):
                     utter_trilemma = ' '.join(utter_lemmas[i_t:i_t+3])
-                    index[utter_trilemma][(i_u, i_t, i_t+3)] += 1
+                    if not max_utters_i or (len(index[utter_trilemma]) < max_utters_i):
+                        index[utter_trilemma][(i_u, i_t, i_t+3)] += 1
     return index
 
 
@@ -63,7 +66,8 @@ if __name__ == "__main__":
                                     lemmatize=True)
 
     hyponyms = set()
-    for synset_id, synset in get_train_synsets(args.train_paths).items():
+    for synset_id, synset in get_train_synsets(args.train_paths, args.synset_info_paths)\
+            .items():
         for sense in synset['senses']:
             hypo = preprocessor(sense['content'])
             if not hypo:
@@ -81,7 +85,7 @@ if __name__ == "__main__":
     with smart_open(args.data_path, 'rt') as fin:
         inverted_index = build_index(fin,
                                      max_utterances=num_lines,
-                                     max_sentences=args.max_sentences)
+                                     max_utterances_per_item=args.max_lines_per_item)
 
     # dumping full index
     base_name = args.data_path.name.split('.')[0]
