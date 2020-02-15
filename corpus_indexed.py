@@ -17,20 +17,29 @@ class CorpusIndexed:
         self.vocab = vocab
         self.index_path = Path(index_path)
 
-        base_name = self.index_path.name.rsplit('.json', 1)[0]
-        base_name = base_name.split('.', 2)[-1]
-        if '-head-' in base_name:
-            base_name = base_name.rsplit('-head-', 1)[0]
-        self.corpus_path = Path(self.index_path.with_name('corpus.' + base_name +
-                                                          '.token.txt.gz'))
-        if not self.corpus_path.exists():
-            self.corpus_path = Path(self.index_path.with_name('corpus.' + base_name +
-                                                              '.token.txt'))
-        if not self.corpus_path.exists():
-            raise RuntimeError(f"corpus {self.corpus_path} doesn't exists")
+        self.corpus_path = self.get_corpus_path(self.index_path)
 
         self.idx, sent_idxs = self.load_index(self.index_path, self.vocab)
         self.corpus = self.load_corpus(self.corpus_path, sent_idxs)
+
+    @staticmethod
+    def get_corpus_path(index_path: Union[str, Path]) -> Path:
+        base_name = Path(index_path).name.rsplit('.json', 1)[0]
+        base_name = base_name.split('.', 2)[-1]
+
+        corpus_path = Path(index_path.with_name('corpus.' + base_name + '.token.txt.gz'))
+        if not corpus_path.exists():
+            corpus_path = Path(index_path.with_name('corpus.' + base_name + '.token.txt'))
+        if not corpus_path.exists() and ('-head-' in base_name):
+            base_name = base_name.rsplit('-head-', 1)[0]
+            corpus_path = Path(index_path.with_name('corpus.' + base_name +
+                                                    '.token.txt.gz'))
+            if not corpus_path.exists():
+                corpus_path = Path(index_path.with_name('corpus.' + base_name +
+                                                        '.token.txt'))
+        if not corpus_path.exists():
+            raise RuntimeError(f"corpus {corpus_path} doesn't exists")
+        return corpus_path
 
     @classmethod
     def load_corpus(cls,
