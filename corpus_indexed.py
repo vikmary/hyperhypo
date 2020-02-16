@@ -120,9 +120,8 @@ class CorpusIndexed:
                                f" corpus {corpus_path} doesn't exists.")
         return corpus_path
 
-    @classmethod
-    def load_corpus(cls,
-                    path: Union[str, Path],
+    @staticmethod
+    def load_corpus(path: Union[str, Path],
                     sent_idxs: Optional[Set[int]] = None) -> List[str]:
         print(f"Loading corpus from {path}.", file=sys.stderr)
         with smart_open(path, 'rt') as fin:
@@ -133,9 +132,8 @@ class CorpusIndexed:
             else:
                 return [ln.strip() for ln in fin]
 
-    @classmethod
-    def load_index(cls,
-                   path: Union[str, Path],
+    @staticmethod
+    def load_index(path: Union[str, Path],
                    vocab: Optional[Iterator[str]] = None) \
             -> Tuple[Dict[str, collections.Counter], Set[int]]:
         print(f"Loading index from {path}.", file=sys.stderr)
