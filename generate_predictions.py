@@ -127,7 +127,8 @@ def predict_with_hybert(model: HyBert,
         # print('hypo_mask', batch[1])
         # print('attn_mask', batch[2])
         # hypernym_repr_t[-1]: [batch_size, hidden_size]
-        hypernym_repr_t.append(model(*to_device(*batch))[0])
+        with torch.no_grad():
+            hypernym_repr_t.append(model(*to_device(*batch))[0])
     # hypernym_repr_t: [num_contexts, hidden_size]
     hypernym_repr_t = torch.cat(hypernym_repr_t, dim=0)
     # hypernym_logits_t: [num_contexts, vocab_size]
