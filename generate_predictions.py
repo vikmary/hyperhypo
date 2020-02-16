@@ -29,9 +29,9 @@ from prepare_corpora.utils import TextPreprocessor
 def parse_args():
     parser = argparse.ArgumentParser()
     # Test words parameters
-    parser.add_argument('--data-path', '-d', type=Path, required=True,
+    parser.add_argument('--data-path', type=Path, required=True,
                         help='dataset path to get predictions for')
-    parser.add_argument('--synset-info-paths', '-s', type=Path, nargs='+',
+    parser.add_argument('--synset-info-paths', type=Path, nargs='+',
                         help='paths to synset info for data if is-train-format')
     parser.add_argument('--pos', type=str, default=None,
                         help='filter hypernyms of only this type of pos')
@@ -41,24 +41,25 @@ def parse_args():
                         help='predict from model on the level of synsets,'
                         ' not on the level of words')
     # Data required for making predictions
-    parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
+    parser.add_argument('--wordnet-dir', type=Path, required=True,
                         help='path to a wordnet directory')
     parser.add_argument('--corpus-path', type=Path,
                         help='path to a tokenized corpus, lemmatized corpus'
                         ' should be also prebuilt')
-    parser.add_argument('--candidates', '-c', type=Path, required=True,
+    parser.add_argument('--candidates', type=Path, required=True,
                         help='path to a list of candidates')
     parser.add_argument('--fallback-prediction-path', '-f', type=Path,
                         help='file with predictions to fallback to')
     # Model parameters
-    parser.add_argument('--bert-model-dir', '-b', type=Path, required=True,
+    parser.add_argument('--bert-model-dir', type=Path, required=True,
                         help='path to a trained bert directory')
-    parser.add_argument('--load-checkpoint', '-l', type=Path,
+    parser.add_argument('--load-checkpoint', type=Path,
                         help='path to a pytorch checkpoint')
-    parser.add_argument('--batch-size', default=1, type=int,
-                        help='batch size for a single test word'
-                        ' (equals number of averaged contexts)')
-    parser.add_argument('--max-context-length', '-m', default=512, type=int,
+    parser.add_argument('--num-contexts', default=1, type=int,
+                        help='number of averaged contexts for each hyponym')
+    parser.add_argument('--batch-size', default=2, type=int,
+                        help='batch size for inferrinf predictions')
+    parser.add_argument('--max-context-length', default=512, type=int,
                         help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
@@ -223,9 +224,9 @@ if __name__ == "__main__":
             print(f'lemmatized corpus path = {lemma_corpus_path}')
             index = CorpusIndexed.build_index(lemma_corpus_path,
                                               vocab=test_lemmas,
-                                              max_utterances_per_item=args.batch_size)
+                                              max_utterances_per_item=args.num_contexts)
             json.dump(index, open(index_path, 'wt'), indent=2, ensure_ascii=False)
-        corpus = CorpusIndexed.from_index(index_path, vocab=frozenset(test_lemmas))
+        corpus = CorpusIndexed.from_index(index_path, vocab=test_lemmas)
     else:
         print("Embedding words without context.")
         corpus = None
@@ -261,7 +262,7 @@ if __name__ == "__main__":
     else:
         print(f"Initializing Hybert from ruBert.")
     model.eval()
-    print(f"Batch size equals {args.batch_size}.")
+    print(f"Batch size equals {args.num_contexts}.")
     print(f"Scoring candidates with '{args.metric}' metric.")
 
     # generating output fila name
@@ -287,13 +288,14 @@ if __name__ == "__main__":
                 else:
                     contexts = contexts or [(word.lower().split(), 0, len(word.split()))]
             if contexts:
-                random_contexts = sample(contexts, min(args.batch_size, len(contexts)))
+                random_contexts = sample(contexts, min(args.num_contexts, len(contexts)))
                 print(f"Random context ({word}) = {random_contexts[0]}")
                 try:
                     preds = predict_with_hybert(model,
                                                 random_contexts,
                                                 metric=args.metric,
                                                 k=30,
+                                                batch_size=args.batch_size,
                                                 max_length=args.max_context_length)
                 except Exception as msg:
                     print(f"captured exception with msg = '{msg}'")
