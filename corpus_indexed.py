@@ -126,8 +126,9 @@ class CorpusIndexed:
         print(f"Loading corpus from {path}.", file=sys.stderr)
         with smart_open(path, 'rt') as fin:
             if sent_idxs is not None:
-                max_lines = max(sent_idxs)
-                return [ln.strip() if i in sent_idxs else None
+                max_lines = max(sent_idxs) + 1
+                print(f"Will load only {max_lines} lines from {path}.")
+                return [ln.strip() if i in sent_idxs else ''
                         for i, ln in tqdm(zip(range(max_lines), fin), total=max_lines)]
             else:
                 return [ln.strip() for ln in fin]
@@ -135,7 +136,7 @@ class CorpusIndexed:
     @staticmethod
     def load_index(path: Union[str, Path],
                    vocab: Optional[Iterator[str]] = None) \
-            -> Tuple[Dict[str, collections.Counter], Set[int]]:
+            -> Tuple[Dict[str, List[str]], Set[int]]:
         print(f"Loading index from {path}.", file=sys.stderr)
 
         index = {}
@@ -148,14 +149,15 @@ class CorpusIndexed:
                 if lemma in index:
                     for idx in idxs:
                         index[lemma][tuple(idx)] += 1
-                        sent_idxs.add(idx[0])
+                        sent_idxs.add(int(idx[0]))
         else:
             for lemma, idxs in read_json_by_item(open(path, 'rt')):
                 if lemma not in index:
                     index[lemma] = collections.Counter()
                 for idx in idxs:
                     index[lemma][tuple(idx)] += 1
-                    sent_idxs.add(idx[0])
+                    sent_idxs.add(int(idx[0]))
+        index = {lemma: list(idxs) for lemma, idxs in index.items()}
         return index, sent_idxs
 
     def get_contexts(self,
