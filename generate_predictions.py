@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import math
+import json
 import argparse
 import itertools
 import collections
 import datetime
-import math
 from pathlib import Path
 from random import sample
 from typing import List, Dict, Union, Tuple, Optional
@@ -42,9 +43,9 @@ def parse_args():
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', '-w', type=Path, required=True,
                         help='path to a wordnet directory')
-    parser.add_argument('--index-path', '-i', type=Path,
-                        help='path to an index file,'
-                        ' corpus with tokenized text should also be prebuilt')
+    parser.add_argument('--corpus-path', type=Path,
+                        help='path to a tokenized corpus, lemmatized corpus'
+                        ' should be also prebuilt')
     parser.add_argument('--candidates', '-c', type=Path, required=True,
                         help='path to a list of candidates')
     parser.add_argument('--fallback-prediction-path', '-f', type=Path,
@@ -89,7 +90,7 @@ def get_indices_and_masks(sent_tokens: List[str],
         if n == in_sent_end - 1:
             new_in_sent_end = len(sent_subwords) + 1
     if new_in_sent_start is None or new_in_sent_end is None:
-        raise ValueError(f'wrong index: context {context} doesn\'t contain pos'
+        raise ValueError(f'wrong index: context {sent_tokens} doesn\'t contain pos'
                          f' ({in_sent_start}, {in_sent_end})')
     return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
 
@@ -98,7 +99,7 @@ def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
                         k: int = 30,
                         metric: str = 'product',
-                        batch_size: int = 8,
+                        batch_size: int = 4,
                         max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
@@ -212,9 +213,19 @@ if __name__ == "__main__":
     test_lemmas = [preprocessor(s) for s in test_senses]
 
     # get corpus with contexts and it's index
-    if args.index_path is not None:
+    if args.corpus_path is not None:
         print("Embedding using corpora.")
-        corpus = CorpusIndexed(args.index_path, vocab=test_lemmas)
+        index_path = CorpusIndexed.get_index_path(args.corpus_path,
+                                                  suffix=args.data_path.stem)
+        print(f'index path = {index_path}')
+        if not index_path.exists():
+            lemma_corpus_path = CorpusIndexed.get_corpus_path(index_path, level='lemma')
+            print(f'lemmatized corpus path = {lemma_corpus_path}')
+            index = CorpusIndexed.build_index(lemma_corpus_path,
+                                              vocab=test_lemmas,
+                                              max_utterances_per_item=args.batch_size)
+            json.dump(index, open(index_path, 'wt'), indent=2, ensure_ascii=False)
+        corpus = CorpusIndexed.from_index(index_path, vocab=frozenset(test_lemmas))
     else:
         print("Embedding words without context.")
         corpus = None

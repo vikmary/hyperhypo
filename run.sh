@@ -11,8 +11,8 @@ python3 -m prepare_corpora.preprocess_corpora --data-path corpora/news_dataset.z
 # python3 taxonomy-enrichment-copy/data/convert_train_to_reference.py taxonomy-enrichment-copy/data/training_data/training_nouns.valid.tsv taxonomy-enrichment-copy/data/training_data/training_nouns.valid.reference.tsv
 # python3 taxonomy-enrichment-copy/data/convert_train_to_reference.py taxonomy-enrichment-copy/data/training_data/training_verbs.valid.tsv taxonomy-enrichment-copy/data/training_data/training_verbs.valid.reference.tsv
 
-python3 -m prepare_corpora.build_index --data-path corpora/news_dataset.lemma.txt.gz --train-paths taxonomy-enrichment/data/training_data/training_*.tsv
-python3 -m prepare_corpora.build_index --data-path corpora/wikipedia-ru-2018.lemma.txt.gz --train-paths taxonomy-enrichment/data/training_data/training_*.tsv
+python3 -m prepare_corpora.build_index --data-path corpora/news_dataset.lemma.txt.gz --train-paths taxonomy-enrichment/data/training_data/training_*.tsv --synset-info-paths taxonomy-enrichment/data/training_data/synsets_*.tsv
+python3 -m prepare_corpora.build_index --data-path corpora/wikipedia-ru-2018.lemma.txt.gz --train-paths taxonomy-enrichment/data/training_data/training_*.tsv --synset-info-paths taxonomy-enrichment/data/training_data/synsets_*.tsv
 
 ./generate_bert_train.py --data-paths taxonomy-enrichment/data/training_data/training*.tsv --synset-info-paths taxonomy-enrichment/data/training_data/synsets_*.tsv --wordnet-dir taxonomy-enrichment/data/ -o corpora/train.cased.json --bert-model-path /home/hdd/models/rubert_v2/rubert_cased_L-12_H-768_A-12_v2
 ./generate_bert_train.py --data-path taxonomy-enrichment/data/training_data/dev*.tsv --synset-info-paths taxonomy-enrichment/data/training_data/synsets_*.tsv --wordnet-dir taxonomy-enrichment/data/ -o corpora/valid.cased.json --bert-model-path /home/hdd/models/rubert_v2/rubert_cased_L-12_H-768_A-12_v2
