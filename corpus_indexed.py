@@ -79,7 +79,7 @@ class CorpusIndexed:
             num_entries = len(list(itertools.chain(*index.values())))
             print(f"{len(index)} phrases, {num_entries} phrase contexts,"
                   f" {int(num_entries / len(index))} per phrase on average in index.")
-            n_absent = sum(len(v) > 0 for v in index.values())
+            n_absent = sum(not len(v) for v in index.values())
             print(f"Haven't found context for {n_absent}/{len(index)}"
                   f" ({int(n_absent/len(index) * 100)}%) phrases from vocabulary.")
         return index
@@ -127,9 +127,9 @@ class CorpusIndexed:
         print(f"Loading corpus from {path}.", file=sys.stderr)
         with smart_open(path, 'rt') as fin:
             if sent_idxs is not None:
+                max_lines = max(sent_idxs)
                 return [ln.strip() if i in sent_idxs else None
-                        for i, ln in enumerate(fin)
-                        if i < max(sent_idxs)]
+                        for i, ln in tqdm(zip(range(max_lines), fin), total=max_lines)]
             else:
                 return [ln.strip() for ln in fin]
 
