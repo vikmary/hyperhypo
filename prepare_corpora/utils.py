@@ -19,7 +19,7 @@ import spacy_udpipe
 
 class Lemmatizer:
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str):
         self.model = model
         if model == 'pymorphy':
             self.lemmatizer = pymorphy2.MorphAnalyzer()
@@ -39,10 +39,12 @@ class Lemmatizer:
             raise ValueError('wrong model name for lemmatizer.')
 
     @functools.lru_cache(maxsize=20000)
-    def __call__(self, tokens: List[str]) -> str:
-        if model == 'pymorphy':
-            return [self.lemmatizer.parse(token)[0].normal_form
-                    for token in tokens]
+    def get_pymorphy_lemma(self, token: str) -> str:
+        return self.lemmatizer.parse(token)[0].normal_form
+
+    def __call__(self, tokens: List[str]) -> List[str]:
+        if self.model == 'pymorphy':
+            return [self.get_pymorphy_lemma(token) for token in tokens]
         elif self.model == 'udpipe':
             return [token.lemma_ for token in self.lemmatizer(' '.join(tokens))]
 
@@ -82,14 +84,14 @@ class TextPreprocessor:
         text = self.sanitizer(text)
 
         if self.model == 'regexp+pymorphy':
-            tokens = [token for token in self.tokenizer.findall(text)]
+            tokens = self.tokenizer.findall(text)
         elif self.model == 'udpipe':
             prep_text = self.udpipe(text)
             tokens = [token.text for token in prep_text]
 
         if self.lemmatize:
             if self.model == 'regexp+pymorphy':
-                text = ' '.join(self.lemmatizer(token) for token in tokens)
+                text = ' '.join(self.lemmatizer(tokens))
             elif self.model == 'udpipe':
                 text = ' '.join(token.lemma_ for token in prep_text)
         if self.lowercase:
