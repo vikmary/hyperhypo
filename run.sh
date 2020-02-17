@@ -1,5 +1,6 @@
 #!/bin/sh
 
+# TODO: add downloading of udpipe model
 # TODO: add code to download and convertion of bert
 
 python3 -m prepare_corpora.preprocess_corpora --data-path corpora/wikipedia-ru-2018.txt -t 4

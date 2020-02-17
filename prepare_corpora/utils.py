@@ -10,9 +10,91 @@ import functools
 import unicodedata
 from pathlib import Path
 from contextlib import contextmanager
-from typing import IO, Union, Optional, List, Iterator, Dict
+from typing import IO, Union, Optional, List, Iterator, Dict, Tuple
 
 import pymorphy2
+# import spacy
+import spacy_udpipe
+
+
+class Lemmatizer:
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+        if model == 'pymorphy':
+            self.lemmatizer = pymorphy2.MorphAnalyzer()
+        elif model == 'udpipe':
+            try:
+                udpipe_model = spacy_udpipe.load("ru")
+                # udpipe_model = spacy_udpipe.UDPipeModel("ru")
+            except Exception:
+                print(f'Downloading udpipe ru model.')
+                spacy_udpipe.download("ru")
+                udpipe_model = spacy_udpipe.load("ru")
+                # udpipe_model = spacy_udpipe.UDPipeModel("ru")
+            self.lemmatizer = udpipe_model
+            # self.lemmatizer = spacy.load("data/russian-syntagrus-ud-2.4-190531.udpipe",
+            #                              udpipe_model=udpipe_model)
+        else:
+            raise ValueError('wrong model name for lemmatizer.')
+
+    @functools.lru_cache(maxsize=20000)
+    def __call__(self, tokens: List[str]) -> str:
+        if model == 'pymorphy':
+            return [self.lemmatizer.parse(token)[0].normal_form
+                    for token in tokens]
+        elif self.model == 'udpipe':
+            return [token.lemma_ for token in self.lemmatizer(' '.join(tokens))]
+
+
+class TextPreprocessor:
+    def __init__(self,
+                 model: str,
+                 filter_stresses: bool = True,
+                 filter_empty_brackets: bool = True,
+                 lowercase: bool = True,
+                 lemmatize: bool = True):
+        self.model = model
+        self.lowercase = lowercase
+        self.lemmatize = lemmatize
+
+        self.sanitizer = Sanitizer(filter_stresses=filter_stresses,
+                                   filter_empty_brackets=filter_empty_brackets)
+        if self.model == 'regexp+pymorphy':
+            self.tokenizer = re.compile(r"[\w']+|[^\w ]")
+            self.lemmatizer = Lemmatizer('pymorphy')
+        elif self.model == 'udpipe':
+            try:
+                udpipe_model = spacy_udpipe.load('ru')
+                # udpipe_model = spacy_udpipe.UDPipeModel("ru")
+            except Exception:
+                print(f'Downloading udpipe ru model.')
+                spacy_udpipe.download("ru")
+                udpipe_model = spacy_udpipe.load('ru')
+                # udpipe_model = spacy_udpipe.UDPipeModel("ru")
+            self.udpipe = udpipe_model
+            # self.udpipe = spacy.load("data/russian-syntagrus-ud-2.4-190531.udpipe",
+            #                          udpipe_model=udpipe_model)
+        else:
+            raise ValueError('wrong model name for preprocessor.')
+
+    def __call__(self, text: str) -> Tuple[str, str]:
+        text = self.sanitizer(text)
+
+        if self.model == 'regexp+pymorphy':
+            tokens = [token for token in self.tokenizer.findall(text)]
+        elif self.model == 'udpipe':
+            prep_text = self.udpipe(text)
+            tokens = [token.text for token in prep_text]
+
+        if self.lemmatize:
+            if self.model == 'regexp+pymorphy':
+                text = ' '.join(self.lemmatizer(token) for token in tokens)
+            elif self.model == 'udpipe':
+                text = ' '.join(token.lemma_ for token in prep_text)
+        if self.lowercase:
+            text = text.lower()
+        return tokens, text
 
 
 def count_lines(fpath: Union[str, Path]) -> int:
@@ -101,36 +183,3 @@ class Sanitizer:
             utterance = self.filter_empty_brackets(utterance)
         utterance = self.filter_duplicate_whitespaces(utterance)
         return utterance
-
-
-class Lemmatizer:
-
-    def __init__(self) -> None:
-        self.lemmatizer = pymorphy2.MorphAnalyzer()
-
-    @functools.lru_cache(maxsize=20000)
-    def __call__(self, token: str) -> str:
-        return self.lemmatizer.parse(token)[0].normal_form
-
-
-class TextPreprocessor:
-    def __init__(self,
-                 filter_stresses: bool = True,
-                 filter_empty_brackets: bool = True,
-                 lowercase: bool = True,
-                 lemmatize: bool = True):
-        self.lowercase = lowercase
-        self.lemmatize = lemmatize
-
-        self.sanitizer = Sanitizer(filter_stresses=filter_stresses,
-                                   filter_empty_brackets=filter_empty_brackets)
-        self.tokenizer = re.compile(r"[\w']+|[^\w ]")
-        self.lemmatizer = Lemmatizer()
-
-    def __call__(self, text: str) -> str:
-        text = self.sanitizer(text)
-        if self.lemmatize:
-            text = ' '.join(self.lemmatizer(t) for t in self.tokenizer.findall(text))
-        if self.lowercase:
-            text = text.lower()
-        return text

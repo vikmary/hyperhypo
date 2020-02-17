@@ -11,7 +11,7 @@ from rusenttokenize import ru_sent_tokenize
 from rusenttokenize import SHORTENINGS, JOINING_SHORTENINGS, PAIRED_SHORTENINGS
 
 from prepare_corpora.utils import smart_open, count_lines, extract_zip
-from prepare_corpora.utils import Sanitizer, Lemmatizer
+from prepare_corpora.utils import TextPreprocessor, Sanitizer
 
 
 def parse_args():
@@ -26,15 +26,21 @@ def parse_args():
                         help='whether the input corpus is in news format')
     parser.add_argument('--min-characters', '-c', type=int, default=20,
                         help='filter sentences with number of characters less than c')
+    parser.add_argument('--preprocessor-model', '-m', default='udpipe',
+                        choices=('udpipe', 'regexp-pymorphy'),
+                        help='hype of preprocessor model to use')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    tokenizer = re.compile(r"[\w']+|[^\w ]")
+    preprocessor = TextPreprocessor(args.preprocessor_model,
+                                    filter_stresses=False,
+                                    filter_empty_brackets=False,
+                                    lowercase=True,
+                                    lemmatize=True)
     sanitizer = Sanitizer(filter_stresses=True, filter_empty_brackets=True)
-    lemmatizer = Lemmatizer()
 
     # extract zip files
     if '.zip' in args.data_path.suffixes:
@@ -54,9 +60,9 @@ if __name__ == "__main__":
     base_name = args.data_path.name.split('.')[0]
     if args.max_lines is not None:
         base_name += f'-head-{args.max_lines}'
-    tokenized_outpath = args.data_path.with_name('corpus.' + base_name +
-                                                 '.token.txt.gz')
-    lemmatized_outpath = args.data_path.with_name(base_name + '.lemma.txt.gz')
+    base_name += f'.{args.preprocessor_model}'
+    tokenized_outpath = args.data_path.with_name(f'corpus.{base_name}.token.txt.gz')
+    lemmatized_outpath = args.data_path.with_name(f'{base_name}.lemma.txt.gz')
     print(f"Writing tokenized corpus to {tokenized_outpath}.")
     print(f"Writing lemmatized corpus to {lemmatized_outpath}.")
     with smart_open(tokenized_outpath, 'wt') as f_tok, \
@@ -68,14 +74,16 @@ if __name__ == "__main__":
                         break
                     i += 1
                     pbar.update(1)
-                    line = sanitizer(line.strip())
                     if args.news:
+                        line = line.strip()
                         try:
                             sents = json.loads(line.split(maxsplit=1)[1])
+                            sents = [sanitizer(sent) for sent in sents]
                         except:
                             sents = []
                             print("Failed to load sentences.")
                     else:
+                        line = sanitizer(line.strip())
                         sents = ru_sent_tokenize(line, SHORTENINGS, JOINING_SHORTENINGS,
                                                  PAIRED_SHORTENINGS)
                     for sent in sents:
@@ -83,18 +91,17 @@ if __name__ == "__main__":
                             sent = sent.replace('\n', '')
                             if len(sent) < args.min_characters:
                                 continue
-                            tokens = tokenizer.findall(sent)
+                            tokens, sent_prep = preprocessor(sent)
                             if len(tokens) < args.min_tokens:
                                 continue
-                            lemmas = [lemmatizer(t).lower() for t in tokens]
                         except Exception as msg:
                             print(f"WARNING: error {msg} for sent = {sent}")
                             continue
-                        out_tokens, out_lemmas = ' '.join(tokens), ' '.join(lemmas)
-                        if len(out_tokens.split()) != len(out_lemmas.split()):
+                        sent_tokenized = ' '.join(tokens)
+                        if len(sent_tokenized.split()) != len(sent_prep.split()):
                             print("Tokenized and lemmatized texts have different lengths"
                                   ", skipping.")
                             continue
-                        f_tok.write(out_tokens + '\n')
-                        f_lem.write(out_lemmas + '\n')
+                        f_tok.write(sent_tokenized + '\n')
+                        f_lem.write(sent_prep + '\n')
     pbar.close()
