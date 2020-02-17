@@ -200,7 +200,8 @@ def load_candidates(fname: Union[str, Path],
 if __name__ == "__main__":
     args = parse_args()
 
-    preprocessor = TextPreprocessor(filter_stresses=True,
+    preprocessor = TextPreprocessor('regexp+pymorphy',
+                                    filter_stresses=True,
                                     filter_empty_brackets=True,
                                     lemmatize=True,
                                     lowercase=True)
@@ -208,11 +209,11 @@ if __name__ == "__main__":
     # load wordnet and word to get prediction for
     if args.is_train_format:
         test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
-        test_senses = [s['content'] for s in synsets2senses(test_synsets)]
+        test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
     else:
-        test_senses = [s['content'] for s in get_test_senses([args.data_path])]
+        test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
     # test_senses = ['ЭПИЛЕПСИЯ', 'ЭЯКУЛЯЦИЯ', 'ЭПОЛЕТ']
-    test_lemmas = [preprocessor(s) for s in test_senses]
+    test_lemmas = [preprocessor(s)[1] for s in test_senses]
 
     # get corpus with contexts and it's index
     if args.corpus_path is not None:
@@ -303,7 +304,7 @@ if __name__ == "__main__":
                     import ipdb; ipdb.set_trace()
                 if args.synset_level:
                     pred_synsets = [([candidates[h]], sc) for h, sc in preds]
-                    pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
+                    pred_senses = [([s['content'] for s in synsets[p[0]]['senses']], sc)
                                    for p, sc in pred_synsets]
                     print(f"Pred synsets ({word}): {pred_senses[:4]}")
                 else:
