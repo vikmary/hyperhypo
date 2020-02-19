@@ -15,12 +15,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
 from hybert import HyBert
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-def to_device(*args):
-    return tuple(arg.to(device) for arg in args)
+from embedder import device, to_device
 
 
 def parse_args():

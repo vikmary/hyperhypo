@@ -4,21 +4,24 @@
 import json
 from typing import Union, List, Tuple, Dict
 from pathlib import Path
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 from torch import Tensor, LongTensor
 from transformers import BertModel, BertConfig, BertTokenizer
 
-from dataset import get_hypernyms_list_from_train
-from embedder import get_embedding
+from dataset import get_hypernyms_list_from_train, HypoDataset
+from embedder import get_embedding, get_encoder_embedding, to_device
 
 
 class HyBert(nn.Module):
     def __init__(self,
                  bert: BertModel,
                  tokenizer: BertTokenizer,
-                 hypernym_list: Union[str, Path, List[List[str]]]):
+                 hypernym_list: Union[str, Path, List[List[str]]],
+                 embed_with_encoder_output: bool = False,
+                 batch_size: int = 128):
         super(HyBert, self).__init__()
 
         self.bert = bert
@@ -27,21 +30,44 @@ class HyBert(nn.Module):
 
         self.tokenizer = tokenizer
         self.hypernym_list = hypernym_list
-        embeddings = self.bert.embeddings.word_embeddings.weight.data.detach()
 
-        hype_embeddings = []
-        for phrases in hypernym_list:
-            phrases_embs = get_embedding(phrases, embeddings, self.tokenizer)
-            hype_embeddings.append(phrases_embs.sum(dim=0) / len(phrases))
-        hype_embeddings = torch.stack(hype_embeddings, dim=0)
-
-        self.hypernym_embeddings = torch.nn.Parameter(hype_embeddings)
+        print(f"Building matrix of hypernym embeddings.")
+        self.hypernym_embeddings = \
+            torch.nn.Parameter(self._build_hypernym_matrix(hypernym_list,
+                                                           embed_with_encoder_output,
+                                                           batch_size))
 
     @staticmethod
     def _read_hypernym_list(hypernym_list_path: Union[str, Path]) -> List[str]:
         print(f"Loading candidates from {hypernym_list_path}.")
         with open(hypernym_list_path, 'rt') as handle:
             return [line.strip() for line in handle]
+
+    def _build_hypernym_matrix(self,
+                               hypernym_list: List[List[str]],
+                               embed_with_encoder_output: bool,
+                               batch_size: int) -> torch.Tensor:
+        if not embed_with_encoder_output:
+            embeddings = self.bert.embeddings.word_embeddings.weight.data.detach()
+            embeddings = to_device(*[embeddings])
+
+        hype_embeddings = []
+        phr_batch, hype_indices = [], []
+        for h_id, phrases in tqdm(enumerate(hypernym_list), total=len(hypernym_list)):
+            hype_indices.append([len(phr_batch), len(phrases)])
+            phr_batch.extend(phrases)
+            if (len(phr_batch) >= batch_size) or (h_id == len(hypernym_list) - 1):
+                if embed_with_encoder_output:
+                    phr_embs_batch = \
+                        get_encoder_embedding(phr_batch, self.bert, self.tokenizer)
+                else:
+                    phr_embs_batch = get_embedding(phr_batch, embeddings, self.tokenizer)
+                phr_embs_batch = phr_embs_batch.detach()
+                for h_start, h_num_phrs in hype_indices:
+                    h_phr_embs = phr_embs_batch[h_start: h_start + h_num_phrs]
+                    hype_embeddings.append(h_phr_embs.mean(dim=0))
+                phr_batch, hype_indices = [], []
+        return torch.stack(hype_embeddings, dim=0)
 
     def forward(self,
                 indices_batch: LongTensor,

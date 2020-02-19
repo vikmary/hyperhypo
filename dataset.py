@@ -218,6 +218,34 @@ class HypoDataset(Dataset):
             return padded_indices, padded_mask, padded_att_mask
 
 
+def get_indices_and_masks(sent_tokens: List[str],
+                          in_sent_start: int,
+                          in_sent_end: int,
+                          tokenizer: BertTokenizer) \
+        -> Tuple[List[int], List[float], int, int]:
+    if in_sent_start not in range(len(sent_tokens)) or\
+            in_sent_end not in range(1, len(sent_tokens) + 1):
+        raise ValueError(f'wrong input: tokens {sent_tokens} don\'t contain pos'
+                         f' ({in_sent_start}, {in_sent_end}).')
+    sent_subword_idxs = []
+    sent_subwords = []
+    sent_hypo_mask = []
+    new_in_sent_start, new_in_sent_end = None, None
+    for n, tok in enumerate(sent_tokens):
+        if n == in_sent_start:
+            new_in_sent_start = len(sent_subwords)
+        subtokens = tokenizer.tokenize(tok)
+        sent_subwords.extend(subtokens)
+        subtok_idxs = tokenizer.convert_tokens_to_ids(subtokens)
+        sent_subword_idxs.extend(subtok_idxs)
+        # NOTE: absence of + 1 because absence of [CLS] token in the beginning
+        mask_value = float(in_sent_start <= n < in_sent_end)
+        sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
+        if n == in_sent_end - 1:
+            new_in_sent_end = len(sent_subwords) + 1
+    return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
+
+
 def get_hypernyms_list_from_train(train: Union[Path, str, List],
                                   level: str = 'sense') -> List[List[str]]:
     if isinstance(train, (str, Path)):
