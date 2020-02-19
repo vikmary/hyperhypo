@@ -17,8 +17,8 @@ from tqdm import tqdm
 from transformers import BertConfig, BertModel, BertTokenizer
 
 from hybert import HyBert
-from dataset import HypoDataset
-from train import device, to_device
+from dataset import HypoDataset, get_indices_and_masks
+from embedder import device, to_device
 from postprocess_prediction import get_prediction
 from corpus_indexed import CorpusIndexed
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
@@ -63,37 +63,13 @@ def parse_args():
                         help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
+    parser.add_argument('--do-not-mask-hypernym', action='store_true',
+                        help='represent hypernyms with whole contexts, do not mask'
+                        ' other words')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
     return parser.parse_args()
-
-
-def get_indices_and_masks(sent_tokens: List[str],
-                          in_sent_start: int,
-                          in_sent_end: int,
-                          tokenizer: BertTokenizer) \
-        -> Tuple[List[int], List[float], int, int]:
-    sent_subword_idxs = []
-    sent_subwords = []
-    sent_hypo_mask = []
-    new_in_sent_start, new_in_sent_end = None, None
-    for n, tok in enumerate(sent_tokens):
-        if n == in_sent_start:
-            new_in_sent_start = len(sent_subwords)
-        subtokens = tokenizer.tokenize(tok)
-        sent_subwords.extend(subtokens)
-        subtok_idxs = tokenizer.convert_tokens_to_ids(subtokens)
-        sent_subword_idxs.extend(subtok_idxs)
-        # NOTE: absence of + 1 because absence of [CLS] token in the beginning
-        mask_value = float(in_sent_start <= n < in_sent_end)
-        sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
-        if n == in_sent_end - 1:
-            new_in_sent_end = len(sent_subwords) + 1
-    if new_in_sent_start is None or new_in_sent_end is None:
-        raise ValueError(f'wrong index: context {sent_tokens} doesn\'t contain pos'
-                         f' ({in_sent_start}, {in_sent_end})')
-    return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
 
 
 def predict_with_hybert(model: HyBert,
@@ -101,6 +77,7 @@ def predict_with_hybert(model: HyBert,
                         k: int = 30,
                         metric: str = 'product',
                         batch_size: int = 4,
+                        mask_hypernym: bool = True,
                         max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
@@ -109,6 +86,8 @@ def predict_with_hybert(model: HyBert,
     for b_start_id in range(0, len(contexts), batch_size):
         b_subtok_idxs, b_hypo_masks = [], []
         for context, l_start, l_end in contexts[b_start_id: b_start_id + batch_size]:
+            if not mask_hypernym:
+                l_start, l_end = 0, len(context)
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
                 get_indices_and_masks(context, l_start, l_end, model.tokenizer)
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
@@ -206,6 +185,33 @@ if __name__ == "__main__":
                                     lemmatize=True,
                                     lowercase=True)
 
+    print(f"Loading BertModel from {args.bert_model_dir}.")
+    config = BertConfig.from_pretrained(args.bert_model_dir / 'bert_config.json')
+    tokenizer = BertTokenizer.from_pretrained(args.bert_model_dir, do_lower_case=False)
+    bert = BertModel.from_pretrained(str(args.bert_model_dir / 'ptrubert.pt'),
+                                     config=config)
+    bert.to(device)
+
+    print(f"Initializing HyBert.")
+    if args.synset_level:
+        candidates = load_candidates(args.candidates, senses2synset=True)
+        model = HyBert(bert, tokenizer, list(candidates.keys()), True)
+    else:
+        candidates = load_candidates(args.candidates)
+        model = HyBert(bert, tokenizer, [[k] for k in candidates], True)
+    model.to(device)
+    if args.load_checkpoint:
+        print(f"Loading HyBert from {args.load_checkpoint}.")
+        model_state = model.state_dict()
+        model_state.update({k: v for k, v in torch.load(args.load_checkpoint,
+                                                        map_location=device).items()
+                            if k != 'hypernym_embeddings'})
+    else:
+        print(f"Initializing Hybert from ruBert.")
+    model.eval()
+    print(f"Batch size equals {args.num_contexts}.")
+    print(f"Scoring candidates with '{args.metric}' metric.")
+
     # load wordnet and word to get prediction for
     if args.is_train_format:
         test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
@@ -220,10 +226,10 @@ if __name__ == "__main__":
         print("Embedding using corpora.")
         index_path = CorpusIndexed.get_index_path(args.corpus_path,
                                                   suffix=args.data_path.stem)
-        print(f'index path = {index_path}')
+        print(f'Index path : {index_path}.')
         if not index_path.exists():
             lemma_corpus_path = CorpusIndexed.get_corpus_path(index_path, level='lemma')
-            print(f'lemmatized corpus path = {lemma_corpus_path}')
+            print(f'Lemmatized corpus path : {lemma_corpus_path}.')
             index = CorpusIndexed.build_index(lemma_corpus_path,
                                               vocab=test_lemmas,
                                               max_utterances_per_item=args.num_contexts)
@@ -242,32 +248,7 @@ if __name__ == "__main__":
         fallback_preds = {w: preds
                           for w, preds in get_prediction(args.fallback_prediction_path)}
 
-    # load Bert model
-    config = BertConfig.from_pretrained(args.bert_model_dir / 'bert_config.json')
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model_dir, do_lower_case=False)
-    bert = BertModel.from_pretrained(str(args.bert_model_dir / 'ptrubert.pt'),
-                                     config=config)
-
-    if args.synset_level:
-        candidates = load_candidates(args.candidates, senses2synset=True)
-        model = HyBert(bert, tokenizer, list(candidates.keys()))
-    else:
-        candidates = load_candidates(args.candidates)
-        model = HyBert(bert, tokenizer, [[k] for k in candidates])
-    model.to(device)
-    if args.load_checkpoint:
-        print(f"Loading HyBert from {args.load_checkpoint}.")
-        model_state = model.state_dict()
-        model_state.update({k: v for k, v in torch.load(args.load_checkpoint,
-                                                        map_location=device).items()
-                            if k != 'hypernym_embeddings'})
-    else:
-        print(f"Initializing Hybert from ruBert.")
-    model.eval()
-    print(f"Batch size equals {args.num_contexts}.")
-    print(f"Scoring candidates with '{args.metric}' metric.")
-
-    # generating output fila name
+    # generating output file name
     now = datetime.datetime.now()
     out_pred_path = args.output_prefix + '.' + args.data_path.name.rstrip('.tsv') +\
         f'_pred_d{now.strftime("%Y%m%d_%H:%M")}.tsv'
@@ -276,6 +257,7 @@ if __name__ == "__main__":
     n_skipped = 0
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
+            # import ipdb; ipdb.set_trace()
             contexts = []
             if corpus:
                 contexts = corpus.get_contexts(lemma) or contexts
@@ -297,6 +279,7 @@ if __name__ == "__main__":
                                                 random_contexts,
                                                 metric=args.metric,
                                                 k=30,
+                                                mask_hypernym=not args.do_not_mask_hypernym,
                                                 batch_size=args.batch_size,
                                                 max_length=args.max_context_length)
                 except Exception as msg:
