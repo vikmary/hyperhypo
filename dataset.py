@@ -5,7 +5,7 @@ import json
 from itertools import chain
 from pathlib import Path
 from random import choice
-from typing import Union, List, Tuple, Optional, Iterable
+from typing import Union, List, Tuple, Optional, Iterable, Dict
 
 import torch
 from torch.utils.data import DataLoader
@@ -13,8 +13,8 @@ from torch.utils.data.dataset import Dataset
 from transformers import BertTokenizer
 import numpy as np
 
-#                 hyponym syns  hyperonym syns  hyperhyperonym syns
-DATASET_TYPE = List[Union[List[str], List[List[str]], List[List[str]]]]
+#                                   hyponym syns  hypernym syns
+DATASET_TYPE = Dict[str, List[Tuple[List[str], List[List[str]]]]]
 
 
 class HypoDataset(Dataset):
@@ -23,7 +23,7 @@ class HypoDataset(Dataset):
                  corpus_path: Union[str, Path],
                  hypo_index_path: Union[str, Path],
                  train_set_path: Union[str, Path],
-                 hypernym_list: List[str],
+                 hypernym_list: Union[List[Tuple[str]]],
                  debug: bool = False,
                  predict_all_hypes: bool = True,
                  max_len: int = 128,
@@ -47,8 +47,14 @@ class HypoDataset(Dataset):
         self.all_hypes_synset = {}
         for hypo, hypos_hypes in self.dataset.items():
             hypo = hypo.lower()
-            self.all_hypes_sense[hypo] = chain(*[hh[1] for hh in hypos_hypes])
-            self.all_hypes_synset[hypo] = [tuple(hh[1]) for hh in hypos_hypes]
+            hypes_synset_level = []
+            hypes_sense_level = []
+            for _, hype_syns in hypos_hypes:
+                hypes_synset_level.extend([tuple(hype_syn) for hype_syn in hype_syns])
+                for hype_syn in hypes_synset_level:
+                    hypes_sense_level.extend([(hype,) for hype in hype_syn])
+            self.all_hypes_sense[hypo] = hypes_sense_level
+            self.all_hypes_synset[hypo] = hypes_synset_level
 
         self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
@@ -67,16 +73,16 @@ class HypoDataset(Dataset):
         return self
 
     def _filter_dataset(self, dataset: DATASET_TYPE) -> DATASET_TYPE:
-        filtered_dataset = []
-        not_in_index_list = []
-        for hypos, *hypes in dataset:
-            for hypo in hypos:
-                if hypo in self.hypo_index:
-                    filtered_dataset.append([hypo, *hypes])
-                else:
-                    not_in_index_list.append(hypo)
-        not_in_index_percent = len(not_in_index_list) / (
-                    len(filtered_dataset) + len(not_in_index_list))
+        filtered_dataset = {}
+        not_in_index_count = 0
+        for hypo, hypo_syns_and_hypes in dataset.items():
+            hypo_syns_and_hypes: List[Tuple[List[str], List[List[str]]]]
+            if self.hypo_index.get(hypo, []):
+                filtered_dataset[hypo] = hypo_syns_and_hypes
+            else:
+                not_in_index_count += 1
+        not_in_index_percent = not_in_index_count / (len(filtered_dataset) +
+                                                     not_in_index_count)
         print(f'{not_in_index_percent:.2f} hyponyms are not found in the index')
         return filtered_dataset
 
@@ -94,7 +100,6 @@ class HypoDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, item):
-        senses_synsets = self.dataset[self.hypos[item]]
         hypo = self.hypos[item].lower()
         if self.level == 'sense':
             all_hypes = self.all_hypes_sense[hypo]
@@ -122,7 +127,7 @@ class HypoDataset(Dataset):
         hypo_mask = hypo_mask[:self.max_len]
         hype_prob = [0.0] * len(self.hypernym_list)
         if self.predict_all_hypes:
-            hype_idxs = [self.hypernym_to_idx[hype] for hype in all_hypes]
+            hype_idxs = [self.hypernym_to_idx[tuple(hype)] for hype in all_hypes]
             single_hype_prob = 1 / len(hype_idxs)
             for hype_idx in hype_idxs:
                 hype_prob[hype_idx] = single_hype_prob
@@ -247,7 +252,7 @@ def get_indices_and_masks(sent_tokens: List[str],
 
 
 def get_hypernyms_list_from_train(train: Union[Path, str, List],
-                                  level: str = 'sense') -> List[List[str]]:
+                                  level: str = 'sense') -> List[Tuple[str]]:
     if isinstance(train, (str, Path)):
         train_set = HypoDataset._read_json(train)
     else:
