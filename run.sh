@@ -1,10 +1,16 @@
 #!/bin/sh
 
 # TODO: add downloading of udpipe model
+git clone git@github.com:ufal/udpipe.git
+cd udpipe/src
+make
+cd ../../
 # TODO: add code to download and convertion of bert
 
 python3 -m prepare_corpora.preprocess_corpora --data-path corpora/wikipedia-ru-2018.txt -t 4
 python3 -m prepare_corpora.preprocess_corpora --data-path corpora/news_dataset.zip -t 4 --news
+
+udpipe/src/udpipe --tokenize --tag data/russian-syntagrus-ud-2.4-190531.udpipe < corpora/corpus.news_dataset.token.txt
 
 # ./train_valid_split.py --data-path taxonomy-enrichment/data/training_data/training.verbs --wordnet-dir taxonomy-enrichment/data/ --valid-rate 0.2
 # ./train_valid_split.py --data-path taxonomy-enrichment/data/training_data/training.nouns --wordnet-dir taxonomy-enrichment/data/ --valid-rate 0.1
