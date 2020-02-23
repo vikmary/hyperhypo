@@ -65,7 +65,7 @@ if __name__ == '__main__':
                         default='/home/hdd/data/hypernym/definitions.train.json')
     args = parser.parse_args()
     with open(args.input) as fin:
-        hyponyms = list(json.load(fin))[:100]
+        hyponyms = list(json.load(fin))
 
     definitions = get_definitions(hyponyms)
     with open(args.output, 'w', encoding='utf-8') as fin:
