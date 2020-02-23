@@ -206,6 +206,7 @@ if __name__ == "__main__":
         model_state.update({k: v for k, v in torch.load(args.load_checkpoint,
                                                         map_location=device).items()
                             if k != 'hypernym_embeddings'})
+        model.load_state_dict(model_state)
     else:
         print(f"Initializing Hybert from ruBert.")
     model.eval()
