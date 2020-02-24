@@ -28,19 +28,23 @@ class HypoDataset(Dataset):
                  predict_all_hypes: bool = True,
                  max_len: int = 128,
                  valid_set_path: Union[str, Path, None] = None,
-                 level: str = 'sense'):
+                 level: str = 'sense',
+                 sample_hypernyms: bool = False):
         self.tokenizer = tokenizer
         self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
         self.level = level
+        self.sample_hypernyms = sample_hypernyms
 
         train_set = self._read_json(train_set_path)
         self.dataset = self._filter_dataset(train_set)
-        self.train_set_end_idx = len(self.dataset)
+        self.train_set_idxs = np.arange(len(self.dataset))
         if valid_set_path is not None:
             valid_set = self._read_json(valid_set_path)
             valid_set = self._filter_dataset(valid_set)
             self.dataset.update(valid_set)
+        self.valid_set_idxs = np.arange(len(self.train_set_idxs), len(self.dataset))
+        # NOTE: here train keys() are not garanteed to return in the same order as added
         self.hypos = list(self.dataset)
 
         self.all_hypes_sense = {}
@@ -55,6 +59,21 @@ class HypoDataset(Dataset):
                     hypes_sense_level.extend([(hype,) for hype in hype_syn])
             self.all_hypes_sense[hypo] = hypes_sense_level
             self.all_hypes_synset[hypo] = hypes_synset_level
+        if sample_hypernyms:
+            self.hypersynset2hypos = {
+                tuple(hyper_synset): hypo
+                for hyper_synset in hyper_synsets
+                for hypo, hyper_synsets in self.all_hypes_synset.items()
+            }
+            self.hyper_synsets = list(self.hypersynset2hypos.keys())
+            train_set_idxs = set(
+                self.hyper_synsets.index(tuple(hyper_synset))
+                for train_hypo_idx in self.train_set_idxs
+                for hyper_synset in self.all_hypes_synset[self.hypos[idx]]
+            )
+            valid_set_idxs = set(range(len(self.hyper_synsets))) - train_set_idxs
+            self.train_set_idxs = np.array(train_set_idxs)
+            self.valid_set_idxs = np.array(valid_set_idxs)
 
         self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
@@ -63,10 +82,10 @@ class HypoDataset(Dataset):
         self.max_len = max_len
 
     def get_train_idxs(self):
-        return np.arange(self.train_set_end_idx)
+        return self.train_set_idxs
 
     def get_valid_idxs(self):
-        return np.arange(self.train_set_end_idx, len(self.dataset))
+        return self.valid_set_idxs
 
     def get_valid(self):
         self.mode = 'valid'
@@ -97,10 +116,17 @@ class HypoDataset(Dataset):
             return handle.readlines()
 
     def __len__(self):
+        if self.sample_hypernyms:
+            return len(self.hyper_synsets)
         return len(self.dataset)
 
     def __getitem__(self, item):
-        hypo = self.hypos[item].lower()
+        if self.sample_hypernyms:
+            hypersynset = self.hyper_synsets[item]
+            hypo = choice(self.hypersynset2hypos[hypesynset])
+        else:
+            hypo = self.hypos[item].lower()
+
         if self.level == 'sense':
             all_hypes = self.all_hypes_sense[hypo]
         elif self.level == 'synset':

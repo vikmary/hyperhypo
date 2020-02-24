@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument('--model-name', type=str, default='checkpoint',
                         help='The name to save the model')
     parser.add_argument('--synset-level', action='store_true')
+    parser.add_argument('--sample-hypernyms', action='store_true')
     args = parser.parse_args()
 
     mode = 'train' if args.only_train_hypes else 'full'
@@ -99,7 +100,8 @@ def main():
                      args.train_path,
                      hype_list,
                      valid_set_path=args.valid_path,
-                     level=level)
+                     level=level,
+                     sample_hypernyms=args.sample_hypernyms)
 
     print(f'Train set len: {len(ds.get_train_idxs())}')
     print(f'Valid set len: {len(ds.get_valid_idxs())}')
