@@ -21,6 +21,7 @@ class HyBert(nn.Module):
                  tokenizer: BertTokenizer,
                  hypernym_list: Union[str, Path, List[List[str]]],
                  embed_with_encoder_output: bool = False,
+                 use_projection: bool = False,
                  batch_size: int = 128):
         super(HyBert, self).__init__()
 
@@ -30,12 +31,15 @@ class HyBert(nn.Module):
 
         self.tokenizer = tokenizer
         self.hypernym_list = hypernym_list
+        self.use_projection = use_projection
 
         print(f"Building matrix of hypernym embeddings.")
         self.hypernym_embeddings = \
             torch.nn.Parameter(self._build_hypernym_matrix(hypernym_list,
                                                            embed_with_encoder_output,
                                                            batch_size))
+        if self.use_projection:
+            self.projection = nn.Linear(768, 768)
 
     @staticmethod
     def _read_hypernym_list(hypernym_list_path: Union[str, Path]) -> List[str]:
@@ -79,6 +83,8 @@ class HyBert(nn.Module):
         m = hypo_mask.unsqueeze(2)
         # hyponym_representations: [batch_size, hidden_size]
         hyponym_representations = torch.sum(h * m, 1) / torch.sum(m, 1)
+        if self.use_projection:
+            hyponym_representations = self.projection(hyponym_representations)
         # hypernym_logits: [batch_size, vocab_size]
         hypernym_logits = hyponym_representations @ self.hypernym_embeddings.T
         hypernym_logits = torch.log_softmax(hypernym_logits, 1)

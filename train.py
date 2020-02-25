@@ -38,6 +38,8 @@ def parse_args():
     parser.add_argument('--sample-hypernyms', action='store_true')
     parser.add_argument('--predict-one-hype', action='store_true',
                         help='whether predict one hype in loss or all')
+    parser.add_argument('--use-projection', action='store_true',
+                        help='learn projection output layer')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
     args = parser.parse_args()
@@ -95,7 +97,9 @@ def main():
     bert = BertModel.from_pretrained(args.model_weights_path, config=config)
     tokenizer = BertTokenizer.from_pretrained(args.model_dir, do_lower_case=False)
 
-    model = HyBert(bert, tokenizer, hype_list, embed_with_encoder_output=True)
+    model = HyBert(bert, tokenizer, hype_list,
+                   use_projection=args.use_projection,
+                   embed_with_encoder_output=True)
 
     # initialization = 'models/100k_4.25.pt'
     # print(f'Initializing model from {initialization}')
@@ -124,11 +128,13 @@ def main():
                           sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
-    # TODO: add option for passing model.bert.parameters to train embeddings
     if args.trainable_embeddings:
-        optimizer = torch.optim.Adam(model.bert.parameters(), lr=args.lr)
+        params = list(model.bert.parameters())
     else:
-        optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=args.lr)
+        params = list(model.bert.encoder.parameters())
+    if args.use_projection:
+        params.extend(model.projection.parameters())
+    optimizer = torch.optim.Adam(params, lr=args.lr)
     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
     #                                               1e-5,
     #                                               3e-5,
@@ -147,9 +153,9 @@ def main():
     best_loss = 1e9
     best_val_loss = 1e9
 
-    ecpochs = 1000
+    epochs = 1000
     save_every = 5000
-    for epoch in range(ecpochs):
+    for epoch in range(epochs):
         print(f'Epoch: {epoch}')
         for batch in tqdm(dl_train):
             idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
