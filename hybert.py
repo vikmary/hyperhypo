@@ -21,6 +21,7 @@ class HyBert(nn.Module):
                  tokenizer: BertTokenizer,
                  hypernym_list: Union[str, Path, List[List[str]]],
                  embed_with_encoder_output: bool = False,
+                 mask_special_tokens: bool = False,
                  use_projection: bool = False,
                  batch_size: int = 128):
         super(HyBert, self).__init__()
@@ -37,6 +38,7 @@ class HyBert(nn.Module):
         self.hypernym_embeddings = \
             torch.nn.Parameter(self._build_hypernym_matrix(hypernym_list,
                                                            embed_with_encoder_output,
+                                                           mask_special_tokens,
                                                            batch_size))
         if self.use_projection:
             self.projection = nn.Linear(768, 768)
@@ -50,6 +52,7 @@ class HyBert(nn.Module):
     def _build_hypernym_matrix(self,
                                hypernym_list: List[List[str]],
                                embed_with_encoder_output: bool,
+                               mask_special_tokens: bool,
                                batch_size: int) -> torch.Tensor:
         if not embed_with_encoder_output:
             embeddings = self.bert.embeddings.word_embeddings.weight.data.detach()
@@ -63,7 +66,8 @@ class HyBert(nn.Module):
             if (len(phr_batch) >= batch_size) or (h_id == len(hypernym_list) - 1):
                 if embed_with_encoder_output:
                     phr_embs_batch = \
-                        get_encoder_embedding(phr_batch, self.bert, self.tokenizer)
+                        get_encoder_embedding(phr_batch, self.bert, self.tokenizer,
+                                              mask_special_tokens=mask_special_tokens)
                 else:
                     phr_embs_batch = get_embedding(phr_batch, embeddings, self.tokenizer)
                 phr_embs_batch = phr_embs_batch.detach()
