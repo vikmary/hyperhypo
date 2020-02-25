@@ -12,7 +12,7 @@ from torch import Tensor, LongTensor
 from transformers import BertModel, BertConfig, BertTokenizer
 
 from dataset import get_hypernyms_list_from_train, HypoDataset
-from embedder import get_embedding, get_encoder_embedding, to_device
+from embedder import get_embedding, get_encoder_embedding, to_device, device
 
 
 class HyBert(nn.Module):
@@ -24,7 +24,7 @@ class HyBert(nn.Module):
                  batch_size: int = 128):
         super(HyBert, self).__init__()
 
-        self.bert = bert
+        self.bert = bert.to(device)
         if not isinstance(hypernym_list, (list, dict)):
             hypernym_list = self._read_hypernym_list(hypernym_list)
 

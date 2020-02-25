@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import json
+import tqdm
+import collections
 from itertools import chain
 from pathlib import Path
 from random import choice
@@ -31,8 +33,8 @@ class HypoDataset(Dataset):
                  level: str = 'sense',
                  sample_hypernyms: bool = False):
         self.tokenizer = tokenizer
-        self.corpus = self._read_corpus(corpus_path)
         self.hypo_index = self._read_json(hypo_index_path)
+        self.corpus = self._read_corpus(corpus_path, self.hypo_index)
         self.level = level
         self.sample_hypernyms = sample_hypernyms
 
@@ -60,20 +62,23 @@ class HypoDataset(Dataset):
             self.all_hypes_sense[hypo] = hypes_sense_level
             self.all_hypes_synset[hypo] = hypes_synset_level
         if sample_hypernyms:
-            self.hypersynset2hypos = {
-                tuple(hyper_synset): hypo
-                for hyper_synset in hyper_synsets
-                for hypo, hyper_synsets in self.all_hypes_synset.items()
-            }
+            self.hypersynset2hypos = collections.defaultdict(list)
+            for hypo, hyper_synsets in self.all_hypes_synset.items():
+                for hyper_synset in hyper_synsets:
+                    self.hypersynset2hypos[hyper_synset].append(hypo)
             self.hyper_synsets = list(self.hypersynset2hypos.keys())
             train_set_idxs = set(
-                self.hyper_synsets.index(tuple(hyper_synset))
+                self.hyper_synsets.index(hyper_synset)
                 for train_hypo_idx in self.train_set_idxs
-                for hyper_synset in self.all_hypes_synset[self.hypos[idx]]
+                for hyper_synset in self.all_hypes_synset[self.hypos[train_hypo_idx]]
             )
             valid_set_idxs = set(range(len(self.hyper_synsets))) - train_set_idxs
-            self.train_set_idxs = np.array(train_set_idxs)
-            self.valid_set_idxs = np.array(valid_set_idxs)
+            self.hypo_train_set_idxs = self.train_set_idxs
+            self.hypo_valid_set_idxs = self.valid_set_idxs
+            self.train_set_idxs = np.array(list(train_set_idxs))
+            self.valid_set_idxs = np.array(list(valid_set_idxs))
+        print(f'Train set contains {len(self.train_set_idxs)} samples.')
+        print(f'Valid set contains {len(self.valid_set_idxs)} samples.')
 
         self.hypernym_to_idx = {hype: n for n, hype in enumerate(hypernym_list)}
         self.hypernym_list = hypernym_list
@@ -111,9 +116,15 @@ class HypoDataset(Dataset):
             return json.load(handle)
 
     @staticmethod
-    def _read_corpus(corpus_path: Union[str, Path]):
+    def _read_corpus(corpus_path: Union[str, Path],
+                     index: Optional[Dict[str, List[Tuple[int]]]]=None) -> List[str]:
+        print(f"Loading corpus from {corpus_path}.")
         with open(corpus_path, encoding='utf8') as handle:
-            return handle.readlines()
+            if index is not None:
+                idxs = set(sent_idx for idxs in index.values() for sent_idx, _, _ in idxs)
+                return [ln if i in idxs else '' for i, ln in tqdm.tqdm(enumerate(handle))]
+            else:
+                return handle.readlines()
 
     def __len__(self):
         if self.sample_hypernyms:
@@ -123,7 +134,16 @@ class HypoDataset(Dataset):
     def __getitem__(self, item):
         if self.sample_hypernyms:
             hypersynset = self.hyper_synsets[item]
-            hypo = choice(self.hypersynset2hypos[hypesynset])
+            hypos = self.hypersynset2hypos[hypersynset]
+            if item in self.train_set_idxs:
+                hypos = [h for h in hypos
+                         if self.hypos.index(h) in self.hypo_train_set_idxs]
+            elif item in self.valid_set_idxs:
+                hypos = [h for h in hypos
+                         if self.hypos.index(h) in self.hypo_valid_set_idxs]
+            else:
+                raise RuntimeError(f"item {item} not in indeces.")
+            hypo = choice(hypos).lower()
         else:
             hypo = self.hypos[item].lower()
 
