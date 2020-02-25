@@ -24,6 +24,7 @@ def parse_args():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--corpus', '-c', type=str, default='news-sample',
+                        choices=('wiki', 'news', 'wiki-sample', 'news-sample'),
                         help='What data to use. Options: ("wiki", '
                              '"news", "wiki-sample", "news-sample")')
     parser.add_argument('--model-dir', '-m', type=Path, default=default_model_dir,
@@ -35,6 +36,8 @@ def parse_args():
                         help='The name to save the model')
     parser.add_argument('--synset-level', action='store_true')
     parser.add_argument('--sample-hypernyms', action='store_true')
+    parser.add_argument('--lr', default=2e-5, type=float,
+                        help='learning rate for training')
     args = parser.parse_args()
 
     mode = 'train' if args.only_train_hypes else 'full'
@@ -47,6 +50,9 @@ def parse_args():
     if corpus == 'news-sample':
         corpus_file = 'corpus.news_dataset-sample.token.txt'
         index_file = f'index.{mode}.news_dataset-sample.json'
+    elif corpus == 'news':
+        corpus_file = 'corpus.news_dataset.token.txt'
+        index_file = f'index.{mode}.news_dataset.json'
     elif corpus == 'wiki-sample':
         corpus_file = 'corpus.wikipedia-ru-2018-sample.token.txt'
         index_file = 'index.train.wikipedia-ru-2018-sample.json'
@@ -87,7 +93,7 @@ def main():
     bert = BertModel.from_pretrained(args.model_weights_path, config=config)
     tokenizer = BertTokenizer.from_pretrained(args.model_dir, do_lower_case=False)
 
-    model = HyBert(bert, tokenizer, hype_list)
+    model = HyBert(bert, tokenizer, hype_list, embed_with_encoder_output=True)
 
     # initialization = 'models/100k_4.25.pt'
     # print(f'Initializing model from {initialization}')
@@ -117,9 +123,9 @@ def main():
     criterion = torch.nn.KLDivLoss(reduction='none')
     # TODO: add option for passing model.bert.parameters to train embeddings
     if args.trainable_embeddings:
-        optimizer = torch.optim.Adam(model.bert.parameters(), lr=2e-5)
+        optimizer = torch.optim.Adam(model.bert.parameters(), lr=args.lr)
     else:
-        optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=2e-5)
+        optimizer = torch.optim.Adam(model.bert.encoder.parameters(), lr=args.lr)
     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
     #                                               1e-5,
     #                                               3e-5,
