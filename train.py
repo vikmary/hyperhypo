@@ -36,6 +36,8 @@ def parse_args():
                         help='The name to save the model')
     parser.add_argument('--synset-level', action='store_true')
     parser.add_argument('--sample-hypernyms', action='store_true')
+    parser.add_argument('--predict-one-hype', action='store_true',
+                        help='whether predict one hype in loss or all')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
     args = parser.parse_args()
@@ -105,6 +107,7 @@ def main():
                      args.index_path,
                      args.train_path,
                      hype_list,
+                     predict_all_hypes=not args.predict_one_hype,
                      valid_set_path=args.valid_path,
                      level=level,
                      sample_hypernyms=args.sample_hypernyms)
