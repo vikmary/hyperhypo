@@ -55,6 +55,8 @@ def parse_args():
                         help='path to a trained bert directory')
     parser.add_argument('--load-checkpoint', type=Path,
                         help='path to a pytorch checkpoint')
+    parser.add_argument('--use-projection', action='store_true',
+                        help='construct projection output layer')
     parser.add_argument('--num-contexts', default=1, type=int,
                         help='number of averaged contexts for each hyponym')
     parser.add_argument('--batch-size', default=2, type=int,
@@ -195,10 +197,14 @@ if __name__ == "__main__":
     print(f"Initializing HyBert.")
     if args.synset_level:
         candidates = load_candidates(args.candidates, senses2synset=True)
-        model = HyBert(bert, tokenizer, list(candidates.keys()), True)
+        model = HyBert(bert, tokenizer, list(candidates.keys()),
+                       use_projection=args.use_projection,
+                       embed_with_encoder_output=True)
     else:
         candidates = load_candidates(args.candidates)
-        model = HyBert(bert, tokenizer, [[k] for k in candidates], True)
+        model = HyBert(bert, tokenizer, [[k] for k in candidates],
+                       use_projection=args.use_projection,
+                       embed_with_encoder_output=True)
     model.to(device)
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")

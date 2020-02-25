@@ -40,6 +40,8 @@ def parse_args():
                         help='whether predict one hype in loss or all')
     parser.add_argument('--use-projection', action='store_true',
                         help='learn projection output layer')
+    parser.add_argument('--freeze-bert', action='store_true',
+                        help='do not update bert parameters')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
     args = parser.parse_args()
@@ -128,12 +130,15 @@ def main():
                           sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
-    if args.trainable_embeddings:
-        params = list(model.bert.parameters())
-    else:
-        params = list(model.bert.encoder.parameters())
+    params = []
+    if not args.freeze_bert:
+        if args.trainable_embeddings:
+            params = list(model.bert.parameters())
+        else:
+            params = list(model.bert.encoder.parameters())
     if args.use_projection:
         params.extend(model.projection.parameters())
+    print(f"Using learning rate equal to {args.lr}.")
     optimizer = torch.optim.Adam(params, lr=args.lr)
     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
     #                                               1e-5,
