@@ -149,13 +149,11 @@ if __name__ == '__main__':
         with open(fname) as fin:
             for line in fin:
                 words.append(line.lower().strip())
-
-    # names = [re.sub('\s?\(.+?\)', '', name) for synset, name in synset_to_name]
-    # args = parser.parse_args()
-    # with open(args.input) as fin:
-    #     hyponyms = list(json.load(fin))
-    # defdb = DefinitionDB()
-    # definitions = defdb(names)
-    defdb = DefinitionDB('/home/hdd/data/hypernym/wiki_wikt_db.json')
-    definitions = defdb.get_definition(words)
+    ddb = DefinitionDB()
+    for word in words[:10]:
+        print(f'======= {word} ========')
+        print(ddb(word))
+    #
+    # defdb = DefinitionDB('/home/hdd/data/hypernym/wiki_wikt_db.json')
+    # definitions = defdb.get_definition(words)
 
