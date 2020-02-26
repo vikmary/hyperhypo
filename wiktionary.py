@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 import argparse
+import random
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import List, Dict
 from urllib.parse import quote
 
-import random
 from tqdm import tqdm
 from multiprocessing import Pool
 import requests
-import re
 import wikipedia
 
 from lxml import html
