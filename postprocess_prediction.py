@@ -21,7 +21,7 @@ def get_prediction(fname: Union[str, Path]) -> List[Tuple[str, List[str]]]:
     pred_tuples = []
     with open(fname, 'rt') as fin:
         for ln in fin:
-            hyponym, hypernym, other = ln.split('\t')
+            hyponym, hypernym, other = ln.split('\t', 2)
             other = other.strip()
             if pred_tuples and (pred_tuples[-1][0] == hyponym):
                 pred_tuples[-1][1].append(hypernym)
@@ -65,6 +65,6 @@ if __name__ == "__main__":
     with open(reranked_pred_path, 'wt') as fout:
         for w_id, hypernyms in get_prediction(args.prediction_path):
             hypernyms = rerank_predictions(hypernyms, synsets)
-            for h_id, other in hypernyms:
+            for h_id in hypernyms:
                 senses = ','.join(s['content'] for s in synsets[h_id]['senses'])
                 fout.write(f'{w_id.upper()}\t{h_id}\t{senses}\n')
