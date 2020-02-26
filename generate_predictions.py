@@ -78,9 +78,9 @@ def parse_args():
 
 def predict_with_hybert(model: HyBert,
                         contexts: List[Tuple[List[str], int, int]],
-                        k: int = 30,
-                        metric: str = 'product',
-                        batch_size: int = 4,
+                        k: int,
+                        metric: str,
+                        batch_size: int,
                         mask_hypernym: bool = True,
                         max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
@@ -90,8 +90,6 @@ def predict_with_hybert(model: HyBert,
     for b_start_id in range(0, len(contexts), batch_size):
         b_subtok_idxs, b_hypo_masks = [], []
         for context, l_start, l_end in contexts[b_start_id: b_start_id + batch_size]:
-            if not mask_hypernym:
-                l_start, l_end = 0, len(context)
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
                 get_indices_and_masks(context, l_start, l_end, model.tokenizer)
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
@@ -102,13 +100,13 @@ def predict_with_hybert(model: HyBert,
                                                    length=max_length - 2)
             cls_idx, sep_idx = model.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
             b_subtok_idxs.append([cls_idx] + subtok_idxs + [sep_idx])
-            b_hypo_masks.append([0.0] + hypo_mask + [0.0])
+            if mask_hyponym:
+                b_hypo_masks.append([0.0] + hypo_mask + [0.0])
+            else:
+                b_hypo_masks.append([1.0] * len(b_subtok_idxs[-1]))
         batch = HypoDataset.torchify_and_pad(b_subtok_idxs, b_hypo_masks)
 
         print(batch[0].shape)
-        # print('indices', batch[0])
-        # print('hypo_mask', batch[1])
-        # print('attn_mask', batch[2])
         # hypernym_repr_t[-1]: [batch_size, hidden_size]
         with torch.no_grad():
             hypernym_repr_t.append(model(*to_device(*batch))[0])
@@ -132,10 +130,10 @@ def predict_with_hybert(model: HyBert,
 
 
 def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
+                    by: str,
+                    k: int,
+                    score_hyperhypernym_synsets: bool,
                     pos: Optional[str] = None,
-                    by: str = 'max',
-                    k: int = 15,
-                    score_hyperhypernym_synsets: bool = False,
                     wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
         raise ValueError(f'Wrong value for pos \'{pos}\'.')
@@ -222,11 +220,11 @@ if __name__ == "__main__":
     print(f"Scoring candidates with '{args.metric}' metric.")
 
     # load wordnet and word to get prediction for
-    if args.is_train_format:
-        test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
-        test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
-    else:
-        test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
+    # if args.is_train_format:
+    #     test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
+    #     test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
+    # else:
+    test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
     # test_senses = ['ЭПИЛЕПСИЯ', 'ЭЯКУЛЯЦИЯ', 'ЭПОЛЕТ']
     test_lemmas = [preprocessor(s)[1] for s in test_senses]
 
@@ -304,6 +302,7 @@ if __name__ == "__main__":
                     print(f"Pred hyponyms ({word}): {preds[:4]}")
                 pred_synsets = rescore_synsets(pred_synsets,
                                                by='sum',
+                                               k=15,
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
                                                score_hyperhypernym_synsets=True)
