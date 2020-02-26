@@ -94,7 +94,7 @@ class DefinitionDB:
                 definitions = []
         return definitions
 
-    def __call__(self, words: List[str]) -> List[List[str]]:
+    def get_definition(self, words: List[str]) -> List[List[str]]:
         if self.lowercase:
             words = [word.lower() for word in words]
         filtered_definitions = []
@@ -117,7 +117,7 @@ class DefinitionDB:
                 filtered_definitions.append(filtered_definition_list)
         return filtered_definitions
 
-    def get_definition(self, term_name: str) -> str:
+    def __call__(self, term_name: str) -> str:
         name = term_name.lower()
         name = re.sub('\s?\(.+?\)', '', name)
 
@@ -157,5 +157,5 @@ if __name__ == '__main__':
     # defdb = DefinitionDB()
     # definitions = defdb(names)
     defdb = DefinitionDB('/home/hdd/data/hypernym/wiki_wikt_db.json')
-    definitions = defdb(words)
+    definitions = defdb.get_definition(words)
 
