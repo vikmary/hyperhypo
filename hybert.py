@@ -20,8 +20,8 @@ class HyBert(nn.Module):
                  bert: BertModel,
                  tokenizer: BertTokenizer,
                  hypernym_list: Union[str, Path, List[List[str]]],
-                 embed_with_encoder_output: bool = False,
-                 mask_special_tokens: bool = False,
+                 embed_with_encoder_output: bool = True,
+                 mask_special_tokens: bool = True,
                  use_projection: bool = False,
                  batch_size: int = 128):
         super(HyBert, self).__init__()

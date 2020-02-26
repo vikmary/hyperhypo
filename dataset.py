@@ -178,7 +178,10 @@ class HypoDataset(Dataset):
             for hype_idx in hype_idxs:
                 hype_prob[hype_idx] = single_hype_prob
         else:
-            hype = choice(all_hypes)
+            if self.sample_hypernyms:
+                hype = hypersynset if self.level == 'synset' else choice(hypersynset)
+            else:
+                hype = choice(all_hypes)
             hype_idx = self.hypernym_to_idx[hype]
             hype_prob[hype_idx] = 1.0
         return subword_idxs, hypo_mask, hype_prob

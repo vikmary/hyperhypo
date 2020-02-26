@@ -27,13 +27,14 @@ def synsets2senses(synsets: dict) -> List[dict]:
 
 def get_test_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
     """Gets test senses with their texts."""
-    senses = []
+    phrases = []
     for fp in fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         for row in open(fp, 'rt'):
-            word = row.split('\t', 1)[0].strip()
-            senses.append({'content': word})
-    return senses
+            phr = row.split('\t', 1)[0].strip()
+            if phr not in phrases:
+                phrases.append(phr)
+    return [{'content': phr} for phr in phrases]
 
 
 def get_train_synsets(fpaths: Iterator[Union[str, Path]],

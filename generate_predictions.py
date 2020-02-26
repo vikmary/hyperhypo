@@ -68,6 +68,8 @@ def parse_args():
     parser.add_argument('--do-not-mask-hypernym', action='store_true',
                         help='represent hypernyms with whole contexts, do not mask'
                         ' other words')
+    parser.add_argument('--do-not-mask-special-tokens', action='store_true',
+                        help='use [CLS] and [SEP] when embedding phrases')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
@@ -121,18 +123,18 @@ def predict_with_hybert(model: HyBert,
         hypernym_embeddings_norm_t = model.hypernym_embeddings /\
             model.hypernym_embeddings.norm(dim=1, keepdim=True)
         hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
-    hypernym_logits_t = torch.log_softmax(hypernym_logits_t, dim=1)
-    # hypernym_logits_avg_t: [hidden_size]
-    hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
-    hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
-    return sorted(zip(model.hypernym_list, hypernym_logits),
+    hypernym_probs_t = torch.softmax(hypernym_logits_t, dim=1)
+    # hypernym_probs_avg_t: [hidden_size]
+    hypernym_probs_avg_t = hypernym_probs_t.mean(dim=0)
+    hypernym_probs = hypernym_probs_avg_t.cpu().detach().numpy()
+    return sorted(zip(model.hypernym_list, hypernym_probs),
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
 
 def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
                     pos: Optional[str] = None,
                     by: str = 'max',
-                    k: int = 10,
+                    k: int = 15,
                     score_hyperhypernym_synsets: bool = False,
                     wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
@@ -142,7 +144,7 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
     elif by == 'max':
         aggr_fn = lambda scores: max(scores)
     elif by == 'sum':
-        aggr_fn = lambda scores: sum(math.exp(s) for s in scores)
+        aggr_fn = lambda scores: sum(scores)
     else:
         raise ValueError(f'Wrong value for by \'{by}\'')
 
@@ -197,14 +199,14 @@ if __name__ == "__main__":
     print(f"Initializing HyBert.")
     if args.synset_level:
         candidates = load_candidates(args.candidates, senses2synset=True)
-        model = HyBert(bert, tokenizer, list(candidates.keys()),
-                       use_projection=args.use_projection,
-                       embed_with_encoder_output=True)
+        hypernym_list = list(candidates.keys())
     else:
         candidates = load_candidates(args.candidates)
-        model = HyBert(bert, tokenizer, [[k] for k in candidates],
-                       use_projection=args.use_projection,
-                       embed_with_encoder_output=True)
+        hypernym_list = [[k] for k in candidates]
+    model = HyBert(bert, tokenizer, hypernym_list,
+                   use_projection=args.use_projection,
+                   mask_special_tokens=not args.do_not_mask_special_tokens,
+                   embed_with_encoder_output=True)
     model.to(device)
     if args.load_checkpoint:
         print(f"Loading HyBert from {args.load_checkpoint}.")
