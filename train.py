@@ -101,7 +101,8 @@ def main():
 
     model = HyBert(bert, tokenizer, hype_list,
                    use_projection=args.use_projection,
-                   embed_with_encoder_output=True)
+                   embed_with_encoder_output=True,
+                   mask_special_tokens=True)
 
     # initialization = 'models/100k_4.25.pt'
     # print(f'Initializing model from {initialization}')
@@ -124,9 +125,9 @@ def main():
     valid_sampler = SubsetRandomSampler(ds.get_valid_idxs())
 
     # TODO: add optional batch size
-    dl_train = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
+    dl_train = DataLoader(ds, batch_size=46, collate_fn=batch_collate,
                           sampler=train_sampler)
-    dl_valid = DataLoader(ds, batch_size=44, collate_fn=batch_collate,
+    dl_valid = DataLoader(ds, batch_size=46, collate_fn=batch_collate,
                           sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
