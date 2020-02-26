@@ -123,11 +123,11 @@ def predict_with_hybert(model: HyBert,
         hypernym_embeddings_norm_t = model.hypernym_embeddings /\
             model.hypernym_embeddings.norm(dim=1, keepdim=True)
         hypernym_logits_t = hypernym_repr_t @ hypernym_embeddings_norm_t.T
-    hypernym_logits_t = torch.log_softmax(hypernym_logits_t, dim=1)
-    # hypernym_logits_avg_t: [hidden_size]
-    hypernym_logits_avg_t = hypernym_logits_t.mean(dim=0)
-    hypernym_logits = hypernym_logits_avg_t.cpu().detach().numpy()
-    return sorted(zip(model.hypernym_list, hypernym_logits),
+    hypernym_probs_t = torch.softmax(hypernym_logits_t, dim=1)
+    # hypernym_probs_avg_t: [hidden_size]
+    hypernym_probs_avg_t = hypernym_probs_t.mean(dim=0)
+    hypernym_probs = hypernym_probs_avg_t.cpu().detach().numpy()
+    return sorted(zip(model.hypernym_list, hypernym_probs),
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
 
@@ -144,7 +144,7 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
     elif by == 'max':
         aggr_fn = lambda scores: max(scores)
     elif by == 'sum':
-        aggr_fn = lambda scores: sum(math.exp(s) for s in scores)
+        aggr_fn = lambda scores: sum(scores)
     else:
         raise ValueError(f'Wrong value for by \'{by}\'')
 
