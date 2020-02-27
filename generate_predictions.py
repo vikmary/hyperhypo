@@ -239,6 +239,9 @@ if __name__ == "__main__":
     if args.use_definitions:
         print("Embeding using definitions.")
         ddb = DefinitionDB()
+        if not args.embed_with_context:
+            raise NotImplementedError('embedding wo countext is not availabled'
+                                      ' for embedding with definitions right now.')
     elif args.corpus_path is not None:
         print("Embedding using corpora.")
         index_path = CorpusIndexed.get_index_path(args.corpus_path,
@@ -278,12 +281,12 @@ if __name__ == "__main__":
             embed_with_special_tokens = args.embed_with_special_tokens
             contexts = []
             if args.use_definitions:
-                definition = ddb(word)
-                if (definition != word) and definition.strip():
-                    def_tokens = word.split() + ['—'] + definition.split()
-                    contexts = [(def_tokens, 0, len(word.split()))]
-                    # embed_with_context = True
-                    # embed_with_special_tokens = True
+                definitions = ddb(word)
+                # def_tokens = word.split() + ['—'] + definition.split()
+                contexts = [(d.split(), 0, 1) for d in definitions]
+                # contexts = [(def_tokens, 0, len(word.split()))]
+                # embed_with_context = True
+                # embed_with_special_tokens = True
             if corpus:
                 contexts = corpus.get_contexts(lemma) or contexts
             if not contexts:
