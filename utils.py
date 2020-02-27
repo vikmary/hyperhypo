@@ -6,7 +6,7 @@ import sys
 import json
 import ijson
 import collections
-from typing import Union, List, Dict, Iterator, Callable, Tuple, Any
+from typing import Union, List, Dict, Iterator, Callable, Tuple, Any, Set
 from pathlib import Path
 import random
 import csv
@@ -186,13 +186,14 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 
 def get_all_related(synset_id: str,
                     synsets: Dict[str, dict],
-                    relation_types: List[str]=['POS_synonymy', 'hypernyms']) -> List[str]:
-    related = [synset_id]
+                    relation_types: List[str] = ('POS-synonymy', 'hypernyms'),
+                    related: Set[str] = set()) -> Set[str]:
+    related.add(synset_id)
     for r_type in relation_types:
         for r_synset_d in synsets[synset_id].get(r_type, []):
             if r_synset_d['id'] not in related:
-                related.extend(get_all_related(r_synset_d['id'], synsets, relation_types))
-    return list(set(related))
+                related.update(get_all_related(r_synset_d['id'], synsets, relation_types))
+    return related
 
 
 def get_cased(s: str, tokenizer: Callable) -> str:
