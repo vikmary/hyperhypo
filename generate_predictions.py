@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument('--synset-level', '-S', action='store_true',
                         help='predict from model on the level of synsets,'
                         ' not on the level of words')
+    parser.add_argument('--embed-with-ruthes-name', action='store_true',
+                        help='embed hypernym synsets with ruthes names')
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', type=Path, required=True,
                         help='path to a wordnet directory')
@@ -256,6 +258,9 @@ if __name__ == "__main__":
                                     lemmatize=True,
                                     lowercase=True)
 
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
+
     print(f"Loading BertModel from {args.bert_model_dir}.")
     config = BertConfig.from_pretrained(args.bert_model_dir / 'bert_config.json')
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_dir, do_lower_case=False)
@@ -266,8 +271,14 @@ if __name__ == "__main__":
     print(f"Initializing HyBert.")
     if args.synset_level:
         candidates = load_candidates(args.candidates, senses2synset=True)
+        if args.embed_with_ruthes_name:
+            candidates = {(synsets[s_id]['ruthes_name'],): s_id
+                          for s_id in candidates.values()}
         hypernym_list = list(candidates.keys())
     else:
+        if args.embed_with_ruthes_name:
+            raise ValueError(f'embedding with ruthes name is not supported for phrase '
+                             f'level')
         candidates = load_candidates(args.candidates)
         hypernym_list = [[k] for k in candidates]
     model = HyBert(bert, tokenizer, hypernym_list,
@@ -289,10 +300,6 @@ if __name__ == "__main__":
     print(f"Scoring candidates with '{args.metric}' metric.")
 
     # load wordnet and word to get prediction for
-    # if args.is_train_format:
-    #     test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
-    #     test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
-    # else:
     test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
     # test_senses = ['ЭПИЛЕПСИЯ', 'ЭЯКУЛЯЦИЯ', 'ЭПОЛЕТ']
     test_lemmas = [preprocessor(s)[1] for s in test_senses]
@@ -322,9 +329,6 @@ if __name__ == "__main__":
         corpus = CorpusIndexed.from_index(index_path, vocab=test_lemmas)
     else:
         print("Embedding words without context.")
-
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
-    enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     # load fallback predictions if needed
     fallback_preds = []
@@ -367,7 +371,7 @@ if __name__ == "__main__":
                             elif '—' in d_tokens:
                                 pos_start, pos_end = 0, d_tokens.index('—')
                             else:
-                                word_tokens = word.split()
+                                word_tokens = (word[0].upper() + word[1:]).split()
                                 d_tokens = word_tokens + ['—'] + d_tokens
                                 pos_start, pos_end = 0, len(word_tokens)
 
