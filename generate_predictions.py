@@ -239,11 +239,16 @@ def load_candidates(fname: Union[str, Path],
     cands = collections.defaultdict(list)
     with open(fname, 'rt') as fin:
         for row in fin:
-            cand_word, cand_synset_id = row.split('\t', 2)[:2]
+            cand_word, cand_synset_id, ruthes_name = row.split('\t', 2)
+            ruthes_name = ruthes_name.strip()
             if senses2synset:
                 cands[cand_synset_id].append(cand_word)
+                if ruthes_name not in cands[cand_synset_id]:
+                    cands[cand_synset_id].append(ruthes_name)
             else:
                 cands[cand_word].append(cand_synset_id)
+                if cand_synset_id not in cands[ruthes_name]:
+                    cands[ruthes_name].append(cand_synset_id)
     if senses2synset:
         return {tuple(senses): synset_id for synset_id, senses in cands.items()}
     return cands
@@ -272,7 +277,7 @@ if __name__ == "__main__":
     if args.synset_level:
         candidates = load_candidates(args.candidates, senses2synset=True)
         if args.embed_with_ruthes_name:
-            candidates = {(synsets[s_id]['ruthes_name'],): s_id
+            candidates = {(synsets[s_id]['ruthes_name'].lower(),): s_id
                           for s_id in candidates.values()}
         hypernym_list = list(candidates.keys())
     else:
