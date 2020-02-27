@@ -21,6 +21,7 @@ from dataset import HypoDataset, get_indices_and_masks
 from embedder import device, to_device
 from postprocess_prediction import get_prediction
 from corpus_indexed import CorpusIndexed
+from wiktionary import DefinitionDB
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
 from utils import enrich_with_wordnet_relations
 from prepare_corpora.utils import TextPreprocessor
@@ -46,6 +47,8 @@ def parse_args():
     parser.add_argument('--corpus-path', type=Path,
                         help='path to a tokenized corpus, lemmatized corpus'
                         ' should be also prebuilt')
+    parser.add_argument('--use-definitions', action='store_true',
+                        help='whether to embed hyponyms with definitions')
     parser.add_argument('--candidates', type=Path, required=True,
                         help='path to a list of candidates')
     parser.add_argument('--fallback-prediction-path', '-f', type=Path,
@@ -65,10 +68,10 @@ def parse_args():
                         help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
-    parser.add_argument('--do-not-mask-hypernym', action='store_true',
-                        help='represent hypernyms with whole contexts, do not mask'
+    parser.add_argument('--embed-with-context', action='store_true',
+                        help='represent hypernyms with whole contexts, do not mask out'
                         ' other words')
-    parser.add_argument('--do-not-mask-special-tokens', action='store_true',
+    parser.add_argument('--embed-with-special-tokens', action='store_true',
                         help='use [CLS] and [SEP] when embedding phrases')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
@@ -81,7 +84,8 @@ def predict_with_hybert(model: HyBert,
                         k: int,
                         metric: str,
                         batch_size: int,
-                        mask_hypernym: bool = True,
+                        embed_with_context: bool = False,
+                        embed_with_special_tokens: bool = False,
                         max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
         raise ValueError(f'metric parameter has invalid value {metric}')
@@ -98,12 +102,14 @@ def predict_with_hybert(model: HyBert,
                                                    subtok_start,
                                                    subtok_end,
                                                    length=max_length - 2)
+            if embed_with_context:
+                hypo_mask = [1.0] * len(subtok_idxs)
             cls_idx, sep_idx = model.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
             b_subtok_idxs.append([cls_idx] + subtok_idxs + [sep_idx])
-            if mask_hyponym:
-                b_hypo_masks.append([0.0] + hypo_mask + [0.0])
+            if embed_with_special_tokens:
+                b_hypo_masks.append([1.0] + hypo_mask + [1.0])
             else:
-                b_hypo_masks.append([1.0] * len(b_subtok_idxs[-1]))
+                b_hypo_masks.append([0.0] + hypo_mask + [0.0])
         batch = HypoDataset.torchify_and_pad(b_subtok_idxs, b_hypo_masks)
 
         print(batch[0].shape)
@@ -203,7 +209,7 @@ if __name__ == "__main__":
         hypernym_list = [[k] for k in candidates]
     model = HyBert(bert, tokenizer, hypernym_list,
                    use_projection=args.use_projection,
-                   mask_special_tokens=not args.do_not_mask_special_tokens,
+                   embed_wo_special_tokens=not args.embed_with_special_tokens,
                    embed_with_encoder_output=True)
     model.to(device)
     if args.load_checkpoint:
@@ -229,7 +235,11 @@ if __name__ == "__main__":
     test_lemmas = [preprocessor(s)[1] for s in test_senses]
 
     # get corpus with contexts and it's index
-    if args.corpus_path is not None:
+    corpus = None
+    if args.use_definitions:
+        print("Embeding using definitions.")
+        ddb = DefinitionDB()
+    elif args.corpus_path is not None:
         print("Embedding using corpora.")
         index_path = CorpusIndexed.get_index_path(args.corpus_path,
                                                   suffix=args.data_path.stem)
@@ -244,7 +254,6 @@ if __name__ == "__main__":
         corpus = CorpusIndexed.from_index(index_path, vocab=test_lemmas)
     else:
         print("Embedding words without context.")
-        corpus = None
 
     synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
@@ -265,7 +274,16 @@ if __name__ == "__main__":
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
             # import ipdb; ipdb.set_trace()
+            embed_with_context = args.embed_with_context
+            embed_with_special_tokens = args.embed_with_special_tokens
             contexts = []
+            if args.use_definitions:
+                definition = ddb(word)
+                if (definition != word) and definition.strip():
+                    def_tokens = word.split() + ['—'] + definition.split()
+                    contexts = [(def_tokens, 0, len(word.split()))]
+                    # embed_with_context = True
+                    # embed_with_special_tokens = True
             if corpus:
                 contexts = corpus.get_contexts(lemma) or contexts
             if not contexts:
@@ -286,7 +304,8 @@ if __name__ == "__main__":
                                                 random_contexts,
                                                 metric=args.metric,
                                                 k=30,
-                                                mask_hypernym=not args.do_not_mask_hypernym,
+                                                embed_with_context=embed_with_context,
+                                                embed_with_special_tokens=embed_with_special_tokens,
                                                 batch_size=args.batch_size,
                                                 max_length=args.max_context_length)
                 except Exception as msg:
