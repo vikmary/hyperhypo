@@ -139,6 +139,7 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
                     by: str,
                     k: int,
                     score_hyperhypernym_synsets: bool,
+                    one_per_group: bool,
                     pos: Optional[str] = None,
                     wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
@@ -153,6 +154,8 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
         raise ValueError(f'Wrong value for by \'{by}\'')
 
     synset_scores = collections.defaultdict(list)
+    if one_per_group:
+        pass
     for cand_synsets, h_score in hypernym_preds:
         if isinstance(cand_synsets, str):
             cand_synsets = [cand_synsets]
@@ -239,9 +242,9 @@ if __name__ == "__main__":
     if args.use_definitions:
         print("Embeding using definitions.")
         ddb = DefinitionDB()
-        if not args.embed_with_context:
-            raise NotImplementedError('embedding wo countext is not availabled'
-                                      ' for embedding with definitions right now.')
+        # if not args.embed_with_context:
+        #     raise NotImplementedError('embedding wo countext is not availabled'
+        #                               ' for embedding with definitions right now.')
     elif args.corpus_path is not None:
         print("Embedding using corpora.")
         index_path = CorpusIndexed.get_index_path(args.corpus_path,
@@ -282,11 +285,35 @@ if __name__ == "__main__":
             contexts = []
             if args.use_definitions:
                 definitions = ddb(word)
-                # def_tokens = word.split() + ['—'] + definition.split()
-                contexts = [(d.split(), 0, 1) for d in definitions]
-                # contexts = [(def_tokens, 0, len(word.split()))]
-                # embed_with_context = True
-                # embed_with_special_tokens = True
+                if definitions != [word]:
+                    # def_tokens = word.split() + ['—'] + definition.split()
+                    contexts = []
+                    for d in definitions:
+                        pos_start, pos_end = None, None
+                        d_tokens = d.split()
+                        word_lower_tokens = word.lower().split()
+                        d_lower_tokens = [tok.lower() for tok in d_tokens]
+                        if word_lower_tokens[0] in d_lower_tokens:
+                            pos_start = d_lower_tokens.index(word_lower_tokens[0])
+                            if d_lower_tokens[pos_start:pos_start +
+                                              len(word_lower_tokens)] == \
+                                    word_lower_tokens:
+                                pos_end = pos_start + len(word_lower_tokens)
+                        if pos_end is None:
+                            if '-' in d_tokens:
+                                pos_start, pos_end = 0, d_tokens.index('-')
+                            elif '—' in d_tokens:
+                                pos_start, pos_end = 0, d_tokens.index('—')
+                            else:
+                                word_tokens = word.split()
+                                d_tokens = word_tokens + ['—'] + d_tokens
+                                pos_start, pos_end = 0, len(word_tokens)
+
+                        contexts.append((d_tokens, pos_start, pos_end))
+                    # contexts = [(d.split(), 0, 1) for d in definitions if d.strip()]
+                    # contexts = [(def_tokens, 0, len(word.split()))]
+                    # embed_with_context = True
+                    # embed_with_special_tokens = True
             if corpus:
                 contexts = corpus.get_contexts(lemma) or contexts
             if not contexts:
@@ -301,7 +328,8 @@ if __name__ == "__main__":
                     contexts = contexts or [(word.lower().split(), 0, len(word.split()))]
             if contexts:
                 random_contexts = sample(contexts, min(args.num_contexts, len(contexts)))
-                print(f"Random context ({word}) = {random_contexts[0]}")
+                # print(f"Random context ({word}) = {random_contexts[0]}")
+                print(f"Contexts ({word}) = {random_contexts}")
                 try:
                     preds = predict_with_hybert(model,
                                                 random_contexts,
@@ -327,6 +355,7 @@ if __name__ == "__main__":
                                                k=15,
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
+                                               one_per_group=False,
                                                score_hyperhypernym_synsets=True)
                 pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
                                for p, sc in pred_synsets]
