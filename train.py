@@ -102,7 +102,7 @@ def main():
     model = HyBert(bert, tokenizer, hype_list,
                    use_projection=args.use_projection,
                    embed_with_encoder_output=True,
-                   mask_special_tokens=True)
+                   embed_wo_special_tokens=True)
 
     # initialization = 'models/100k_4.25.pt'
     # print(f'Initializing model from {initialization}')

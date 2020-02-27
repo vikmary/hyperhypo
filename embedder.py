@@ -18,14 +18,14 @@ def to_device(*args):
 def get_encoder_embedding(phrases: List[str],
                           bert: BertModel,
                           tokenizer: BertTokenizer,
-                          mask_special_tokens: bool = False) -> torch.Tensor:
+                          embed_wo_special_tokens: bool) -> torch.Tensor:
     subtok_ids_list, hypo_mask_list = [], []
     for phr in phrases:
         subtok_ids_list.append(tokenizer.convert_tokens_to_ids(
             ['[CLS]'] + tokenizer.tokenize(phr) + ['[SEP]']
         ))
         hypo_mask_list.append([1.0] * len(subtok_ids_list[-1]))
-        if mask_special_tokens:
+        if embed_wo_special_tokens:
             hypo_mask_list[-1][0] = 0.0
             hypo_mask_list[-1][-1] = 0.0
     batch = HypoDataset.torchify_and_pad(subtok_ids_list, hypo_mask_list)
