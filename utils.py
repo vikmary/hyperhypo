@@ -6,7 +6,7 @@ import sys
 import json
 import ijson
 import collections
-from typing import Union, List, Dict, Iterator, Callable, Tuple, Any, Set
+from typing import Union, List, Dict, Iterator, Callable, Tuple, Any, Set, Optional
 from pathlib import Path
 import random
 import csv
@@ -187,12 +187,28 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 def get_all_related(synset_id: str,
                     synsets: Dict[str, dict],
                     relation_types: List[str] = ('POS-synonymy', 'hypernyms'),
-                    related: Set[str] = set()) -> Set[str]:
-    related.add(synset_id)
+                    related: Optional[Dict[str, int]] = None,
+                    level: int = 0) -> Dict[str, int]:
+    print(f'current synset = {synset_id}, level = {level}, related={related}')
+    if not related:
+        related = {}
+    related[synset_id] = level
     for r_type in relation_types:
         for r_synset_d in synsets[synset_id].get(r_type, []):
+            if r_type == 'hypernyms':
+                new_level = level + 1
+            elif r_type == 'POS-synonymy':
+                new_level = level
             if r_synset_d['id'] not in related:
-                related.update(get_all_related(r_synset_d['id'], synsets, relation_types))
+                syn_related = get_all_related(r_synset_d['id'],
+                                              synsets,
+                                              relation_types,
+                                              related,
+                                              new_level)
+                for syn_rel in syn_related:
+                    if syn_rel not in related:
+                        print(f'adding {syn_rel} with level {syn_related[syn_rel]}')
+                        related[syn_rel] = syn_related[syn_rel]
     return related
 
 
