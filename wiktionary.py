@@ -140,15 +140,19 @@ class DefinitionDB:
                         d = re.sub('\s?\(.+?\)', '', d)
                     d = self._get_first_sent(d)
                     defins.append(d)
-        if not defins:
-            defins.append(term_name)
+
         filtered_defins = []
         for defin in defins:
             defin, *examples = defin.split(self._examples_sep)
             defin = self.san.filter_diacritical(defin)
             defin = self.filter_intro_abbreviations(defin)
-            filtered_defins.append(defin)
-        return filtered_defins
+            defin = defin.strip()
+            if defin:
+                filtered_defins.append(defin)
+        if not filtered_defins:
+            return [term_name]
+        else:
+            return filtered_defins
 
     @staticmethod
     def _get_first_sent(text: str) -> str:
@@ -164,7 +168,6 @@ if __name__ == '__main__':
     with open('/home/hdd/data/hypernym/synset_info.json', 'r', encoding='utf-8') as fin:
         synset_to_name = json.load(fin)
 
-    ddb = DefinitionDB('/home/hdd/data/hypernym/wiki_wikt_db.json')
     words = []
     for fname in Path('/home/hdd/data/hypernym/').glob('*.tsv'):
         if 'candidates' in str(fname):
