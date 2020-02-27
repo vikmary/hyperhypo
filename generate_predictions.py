@@ -23,7 +23,7 @@ from postprocess_prediction import get_prediction
 from corpus_indexed import CorpusIndexed
 from wiktionary import DefinitionDB
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
-from utils import enrich_with_wordnet_relations
+from utils import enrich_with_wordnet_relations, get_all_related
 from prepare_corpora.utils import TextPreprocessor
 
 
@@ -135,6 +135,44 @@ def predict_with_hybert(model: HyBert,
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
 
+def group_synsets(synsets: List[str], wordnet_synsets: Dict) -> Dict[str, str]:
+    syn2group = {}
+    for s_id in synsets:
+        if s_id not in syn2group:
+            syn2group[s_id] = get_all_related(s_id, wordnet_synsets, ('hypernyms',))
+            syn2group[s_id] = {k: level
+                               for k, level in syn2group[s_id].items()
+                               if k in synsets}
+    print('syn2group', syn2group)
+    not_covered = set(syn2group.keys())
+    syn2root_group = {}
+    for s_i_id in syn2group:
+        if s_i_id not in not_covered:
+            continue
+        not_covered.remove(s_i_id)
+        group_ids, root_group = [s_i_id], syn2group[s_i_id]
+        for s_j_id in syn2root_group:
+            if syn2root_group[s_j_id].keys() & root_group.keys():
+                group_ids.append(s_j_id)
+                if len(syn2root_group[s_j_id]) > len(root_group):
+                    root_group = syn2group[s_j_id]
+        for s_j_id in not_covered:
+            if syn2group[s_j_id].keys() & root_group.keys():
+                group_ids.append(s_j_id)
+                if len(syn2group[s_j_id]) > len(root_group):
+                    root_group = syn2group[s_j_id]
+        for s_id in group_ids:
+            if s_id in not_covered:
+                not_covered.remove(s_id)
+            syn2root_group[s_id] = root_group
+        print('syn2root_group', syn2root_group)
+    syn2root_syn = {s_id: max(root_group, key=lambda s: root_group[s])
+                    for s_id, root_group in syn2root_group.items()}
+
+    print('syn2root_syn', syn2root_syn)
+    return syn2root_syn
+
+
 def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
                     by: str,
                     k: int,
@@ -155,7 +193,8 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
 
     synset_scores = collections.defaultdict(list)
     if one_per_group:
-        pass
+        uniq_synsets = set(s_id for s_ids, _ in hypernym_preds for s_id in s_ids)
+        syn2group_syn = group_synsets(list(uniq_synsets), wordnet_synsets)
     for cand_synsets, h_score in hypernym_preds:
         if isinstance(cand_synsets, str):
             cand_synsets = [cand_synsets]
