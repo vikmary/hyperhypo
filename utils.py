@@ -189,7 +189,7 @@ def get_all_related(synset_id: str,
                     relation_types: List[str] = ('POS-synonymy', 'hypernyms'),
                     related: Optional[Dict[str, int]] = None,
                     level: int = 0) -> Dict[str, int]:
-    print(f'current synset = {synset_id}, level = {level}, related={related}')
+    # print(f'current synset = {synset_id}, level = {level}, related={related}')
     if not related:
         related = {}
     related[synset_id] = level
@@ -207,7 +207,7 @@ def get_all_related(synset_id: str,
                                               new_level)
                 for syn_rel in syn_related:
                     if syn_rel not in related:
-                        print(f'adding {syn_rel} with level {syn_related[syn_rel]}')
+                        # print(f'adding {syn_rel} with level {syn_related[syn_rel]}')
                         related[syn_rel] = syn_related[syn_rel]
     return related
 
