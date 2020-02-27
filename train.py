@@ -44,6 +44,9 @@ def parse_args():
                         help='do not update bert parameters')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
+
+    parser.add_argument('--embed-with-special-tokens', action='store_true',
+                        help='use [CLS] and [SEP] when embedding phrases')
     args = parser.parse_args()
 
     mode = 'train' if args.only_train_hypes else 'full'
@@ -102,7 +105,7 @@ def main():
     model = HyBert(bert, tokenizer, hype_list,
                    use_projection=args.use_projection,
                    embed_with_encoder_output=True,
-                   embed_wo_special_tokens=True)
+                   embed_wo_special_tokens=not args.embed_with_special_tokens)
 
     # initialization = 'models/100k_4.25.pt'
     # print(f'Initializing model from {initialization}')
@@ -117,6 +120,7 @@ def main():
                      predict_all_hypes=not args.predict_one_hype,
                      valid_set_path=args.valid_path,
                      level=level,
+                     embed_with_special_tokens=embed_with_special_tokens,
                      sample_hypernyms=args.sample_hypernyms)
 
     print(f'Train set len: {len(ds.get_train_idxs())}')
