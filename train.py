@@ -120,7 +120,7 @@ def main():
                      predict_all_hypes=not args.predict_one_hype,
                      valid_set_path=args.valid_path,
                      level=level,
-                     embed_with_special_tokens=embed_with_special_tokens,
+                     embed_with_special_tokens=args.embed_with_special_tokens,
                      sample_hypernyms=args.sample_hypernyms)
 
     print(f'Train set len: {len(ds.get_train_idxs())}')

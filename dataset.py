@@ -37,7 +37,7 @@ class HypoDataset(Dataset):
         self.hypo_index = self._read_json(hypo_index_path)
         self.corpus = self._read_corpus(corpus_path, self.hypo_index)
         self.level = level
-        self.embed_with_special_tokens
+        self.embed_with_special_tokens = embed_with_special_tokens
         self.sample_hypernyms = sample_hypernyms
 
         train_set = self._read_json(train_set_path)
