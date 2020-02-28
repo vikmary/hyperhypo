@@ -15,7 +15,7 @@ from torch.utils.data.dataset import Dataset
 from transformers import BertTokenizer
 import numpy as np
 
-from dataset import get_indices_and_mask
+from dataset import get_indices_and_masks, HypoDataset
 
 #             synset id, synonym_synset
 DATASET_TYPE = Dict[str, List[str]]
@@ -28,7 +28,8 @@ class SynoDataset(Dataset):
                  sense_index_path: Union[str, Path],
                  train_set_path: Union[str, Path],
                  output_synonym_list: List[Tuple[str]],
-                 embed_with_special_tokens: bool = False,
+                 predict_one: bool = False,
+                 embed_with_special_tokens: bool = True,
                  max_len: int = 128,
                  level: str = 'sense') -> None:
         self.tokenizer = tokenizer
@@ -36,6 +37,7 @@ class SynoDataset(Dataset):
         self.corpus = self._read_corpus(corpus_path, self.sense_index)
         self.output_synonym_list = output_synonym_list
 
+        self.predict_one = predict_one
         self.embed_with_special_tokens = embed_with_special_tokens
         self.max_len = max_len
         self.level = level
@@ -82,7 +84,7 @@ class SynoDataset(Dataset):
 
     @staticmethod
     def _read_corpus(corpus_path: Union[str, Path],
-                     index: Optional[Dict[str, List[Tuple[int]]]]=None) -> List[str]:
+                     index: Optional[Dict[str, List[Tuple[int]]]] = None) -> List[str]:
         print(f"Loading corpus from {corpus_path}.")
         with open(corpus_path, encoding='utf8') as handle:
             if index is not None:
@@ -105,11 +107,11 @@ class SynoDataset(Dataset):
         subword_idxs, syno_mask, subtok_start, subtok_end = \
             get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
         subword_idxs, syno_mask, subtok_start, subtok_end = \
-            self._cut_to_maximum_length(subword_idxs,
-                                        syno_mask,
-                                        subtok_start,
-                                        subtok_end,
-                                        self.max_len)
+            HypoDataset._cut_to_maximum_length(subword_idxs,
+                                               syno_mask,
+                                               subtok_start,
+                                               subtok_end,
+                                               self.max_len)
         cls_idx, sep_idx = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
         subword_idxs = [cls_idx] + subword_idxs + [sep_idx]
         if self.embed_with_special_tokens:
@@ -117,143 +119,91 @@ class SynoDataset(Dataset):
         else:
             syno_mask = [0.0] + syno_mask + [0.0]
 
-        hype_prob = [0.0] * len(self.hypernym_list)
-        syno_probs = [0.0] * len(self.output_synonym_list)
-        if self.predict_all_hypes:
-            syno_idxs = [self.output_synonym_list.index(syno) for syno in output_synonyms]
-        else:
-            random_output_syno = choice(output_synonyms)
-            syno_idxs = [self.output_synonym_list.index(random_output_syno)]
-        single_syno_prob = 1 / len(syno_idxs)
-        for syno_idx in syno_idxs:
-            syno_probs[syno_idx] = single_syno_prob
-        return subword_idxs, syno_mask, hype_prob
-
-    @staticmethod
-    def _cut_to_maximum_length(subword_idxs: List[str],
-                               syno_mask: List[str],
-                               subtok_start: int,
-                               subtok_end: int,
-                               length: int) -> Tuple[List[str], List[str], int, int]:
-        if len(subword_idxs) > length:
-            half_len = length // 2
-            new_start = max(0, subtok_start - half_len)
-            subword_idxs = subword_idxs[new_start: new_start + length]
-            syno_mask = syno_mask[new_start: new_start + length]
-
-            new_subtok_start = subtok_start - new_start
-            new_subtok_end = subtok_end - new_start
-            return subword_idxs, syno_mask, new_subtok_start, new_subtok_end
-        return subword_idxs, syno_mask, subtok_start, subtok_end
-
-    @classmethod
-    def torchify_and_pad(cls,
-                         sents_indices: List[List[int]],
-                         sents_masks: List[List[float]],
-                         hype_one_hot: Optional[List[List[float]]] = None) -> Tuple[torch.Tensor]:
-        batch_size = len(sents_indices)
-        max_len = max(len(idx) for idx in sents_indices)
-        padded_indices = torch.zeros(batch_size, max_len, dtype=torch.long)
-        padded_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
-        padded_att_mask = torch.zeros(batch_size, max_len, dtype=torch.float)
-
-        for n, (sent_idxs, sent_mask) in enumerate(zip(sents_indices, sents_masks)):
-            up_to = len(sent_idxs)
-            sent_idxs = torch.tensor(sent_idxs)
-            sent_mask = torch.tensor(sent_mask)
-            padded_indices[n, :up_to] = sent_idxs
-            padded_mask[n, :up_to] = sent_mask
-            padded_att_mask[n, :up_to] = 1.0
-        if hype_one_hot:
-            hype_one_hot = torch.tensor(hype_one_hot)
-            return padded_indices, padded_mask, padded_att_mask, hype_one_hot
-        else:
-            return padded_indices, padded_mask, padded_att_mask
+        syno_idxs = [self.output_synonym_list.index(syno) for syno in output_synonyms]
+        if self.predict_one:
+            syno_idxs = [choice(syno_idxs)]
+        output_probs = [1 / len(syno_idxs) if i in syno_idxs else 0.0
+                        for i in range(len(self.output_synonym_list))]
+        return subword_idxs, syno_mask, output_probs
 
 
-def get_hypernyms_list_from_train(train: Union[Path, str, List],
-                                  level: str = 'sense') -> List[Tuple[str]]:
+def get_synonyms_list_from_train(train: Union[Path, str, List],
+                                 level: str = 'sense') -> List[Tuple[str]]:
     if isinstance(train, (str, Path)):
-        train_set = HypoDataset._read_json(train)
-    else:
-        train_set = train
-    hypernyms_set = set()
-    for syno, syno_staff in train_set.items():
-        for syno_synset, hypes in syno_staff:
+        train = SynoDataset._read_json(train)
+    synonym_set = set()
+    for synonym_synsets in train.values():
+        for synset in synonym_synsets:
             if level == 'sense':
-                all_hypes = [(h, ) for h in chain(*hypes)]
+                synonym_set.update((syno,) for syno in synset)
             elif level == 'synset':
-                all_hypes = [tuple(h) for h in hypes]
+                synonym_set.add(tuple(synset))
             else:
-                raise NotImplementedError
-            hypernyms_set.update(all_hypes)
-    return sorted(hypernyms_set)
+                raise NotImplementedError()
+    return sorted(synonym_set)
 
 
 def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch.Tensor]:
     """ Pads batch """
-    indices, masks, hype_idxs = list(zip(*batch))
-    indices, masks, attention_masks, hype_idxs = HypoDataset.torchify_and_pad(indices, masks, hype_idxs)
-    return indices, masks, attention_masks, hype_idxs
+    indices, masks, syno_idxs = list(zip(*batch))
+    indices, masks, attention_masks, syno_idxs = HypoDataset.torchify_and_pad(indices, masks, syno_idxs)
+    return indices, masks, attention_masks, syno_idxs
 
 
 if __name__ == '__main__':
-    # tokenizer_vocab_path = 'sample_data/vocab.txt'
-    # corpus_path = 'sample_data/tst_corpus.txt'
-    # sense_index_path = 'sample_data/tst_index.json'
-    # train_set_path = 'sample_data/tst_train.json'
-    data_path = Path('/home/hdd/data/hypernym/')
+    data_path = Path('/home/hdd/data/synonym/')
     corpus_path = data_path / 'corpus.news_dataset-sample.token.txt'
-    sense_index_path = data_path / 'index.train.news_dataset-sample.json'
-    train_set_path = data_path / 'train.cased.json'
+    index_path = data_path / 'index.train.news_dataset-sample.json'
+    train_set_path = data_path / 'train_synonym.cased.not_lemma.json'
 
     model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
     tokenizer_vocab_path = model_path / 'vocab.txt'
 
     tokenizer = BertTokenizer(tokenizer_vocab_path, do_lower_case=False)
-    hype_list = get_hypernyms_list_from_train(train_set_path)
-    print(f'Hypernym list: {hype_list}')
-    ds = HypoDataset(tokenizer,
-                     corpus_path,
-                     sense_index_path,
-                     train_set_path,
-                     hype_list)
+    output_synonym_list = get_synonyms_list_from_train(train_set_path, level='sense')
+    print(f'Synonym list: {output_synonym_list}')
 
-    sentence_indices, sentence_syno_mask, hype_idx = next(iter(ds))
+    ds = SynoDataset(tokenizer,
+                     corpus_path,
+                     index_path,
+                     train_set_path,
+                     output_synonym_list,
+                     predict_one=True,
+                     level='sense')
+
+    sentence_indices, sentence_syno_mask, syno_idx = next(iter(ds))
     print(f'Indices: {sentence_indices}\n'
           f'Hypo Mask: {sentence_syno_mask}\n'
-          f'Hype idx: {hype_idx}')
+          f'Synonym idx: {syno_idx}')
     print('=' * 20)
-    print('Returning all hypes')
+    print('Returning all synos')
 
-    ds = HypoDataset(tokenizer,
+    ds = SynoDataset(tokenizer,
                      corpus_path,
-                     sense_index_path,
+                     index_path,
                      train_set_path,
-                     hype_list,
-                     predict_all_hypes=True)
+                     output_synonym_list,
+                     predict_one=False,
+                     level='sense')
 
-    sentence_indices, sentence_syno_mask, hype_idxs = next(iter(ds))
+    sentence_indices, sentence_syno_mask, syno_idxs = next(iter(ds))
     print(f'Indices: {sentence_indices}\n'
           f'Hypo Mask: {sentence_syno_mask}\n'
-          f'hype_idxs: {hype_idxs}')
+          f'syno_idxs: {syno_idxs}')
     print('=' * 20)
 
     dl = DataLoader(ds, batch_size=2, collate_fn=batch_collate)
-    idxs_batch, mask_batch, attention_masks_batch, hype_idxs = next(iter(dl))
+    idxs_batch, mask_batch, attention_masks_batch, syno_idxs = next(iter(dl))
     print(f'Indices batch: {idxs_batch}\n'
           f'Mask batch: {mask_batch}\n'
           f'Attention mask batch: {attention_masks_batch}\n'
-          f'Hype indices batch: {hype_idxs}')
+          f'Synonym indices batch: {syno_idxs}')
 
     print('='*20)
     synonym = 'кот'
-    batch = ds.get_all_syno_samples(synonym)
-    indices, masks, att_masks = batch
-    print(f'BERT inputs for all mentions of a synonym {synonym}\n'
-          f'Indices: {indices}\n'
-          f'Mask: {masks}\n'
-          f'Attention masks: {att_masks}')
-
-# TODO: add repetition of the same syno
-# TODO: separate class
+    # batch = ds.get_all_syno_samples(synonym)
+    # indices, masks, att_masks = batch
+    # print(f'BERT inputs for all mentions of a synonym {synonym}\n'
+    #       f'Indices: {indices}\n'
+    #       f'Mask: {masks}\n'
+    #       f'Attention masks: {att_masks}')
