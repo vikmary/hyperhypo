@@ -108,10 +108,26 @@ def get_train_synsets2(fpaths: Iterator[Union[str, Path]]) -> Dict:
     return synsets
 
 
-def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
-    """Gets synsets with id as key and senses as values."""
-    synsets = {}
+def get_wordnet_senses(fpaths: Iterator[Union[str, Path]]) -> Dict:
+    """Gets senses with id as key and senses as values."""
+    senses = {}
     for fp in fpaths:
+        sys.stderr.write(f"Parsing {fp}.\n")
+        with open(fp, 'rt') as fin:
+            xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
+        for sense in xml_parser.findAll('sense'):
+            sense_d = sense.attrs
+            sense_id = sense_d.pop('id')
+            senses[sense_id] = sense_d
+    return senses
+
+
+def get_wordnet_synsets(synset_fpaths: Iterator[Union[str, Path]],
+                        senses_fpaths: Iterator[Union[str, Path]]) -> Dict:
+    """Gets synsets with id as key and senses as values."""
+    senses = get_wordnet_senses(senses_fpaths)
+    synsets = {}
+    for fp in synset_fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
             xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
@@ -123,8 +139,10 @@ def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             # finding child senses
             synset_d['senses'] = []
             for sense in synset.findAll('sense'):
-                synset_d['senses'].append({'id': sense.get('id'),
-                                           'content': sense.contents[0]})
+                sense_d = senses[sense['id']]
+                synset_d['senses'].append({'id': sense['id'],
+                                           'lemma': sense_d['lemma'],
+                                           'content': sense_d['name']})
             # adding to dict of synsets
             synsets[synset_id] = synset_d
     return synsets

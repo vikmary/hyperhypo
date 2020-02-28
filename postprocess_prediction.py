@@ -56,7 +56,8 @@ def rerank_predictions(hypernyms: List[str], synsets: Dict[str, Dict]) -> List[s
 if __name__ == "__main__":
     args = parse_args()
 
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                  args.wordnet_dir.glob('senses.*'))
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     pred_base_name = '.'.join(args.prediction_path.name.split('.')[:-1])

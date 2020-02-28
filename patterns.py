@@ -79,7 +79,8 @@ if __name__ == "__main__":
     print(f"Found hyper candidate phrases for {found}/{len(test_phrs)}"
           f" ({int(found/len(test_phrs) * 100)}%) test phrases.")
 
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                  args.wordnet_dir.glob('senses.*'))
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     sense2synsets = collections.defaultdict(list)

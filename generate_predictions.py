@@ -263,7 +263,8 @@ if __name__ == "__main__":
                                     lemmatize=True,
                                     lowercase=True)
 
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                  args.wordnet_dir.glob('senses.*'))
     enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     print(f"Loading BertModel from {args.bert_model_dir}.")

@@ -38,7 +38,8 @@ if __name__ == "__main__":
 
     train_synsets = get_train_synsets(args.train_data_paths)
 
-    all_synsets = get_wordnet_synsets(args.ruwordnet_dir.glob('synsets*'))
+    all_synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                      args.wordnet_dir.glob('senses.*'))
 
     subsumptions = ((s['content'].lower(), hyper_s['content'].lower())
                     for synset in train_synsets.values()
