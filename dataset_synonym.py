@@ -71,7 +71,7 @@ class SynoDataset(Dataset):
         filtered_dataset = collections.defaultdict(list)
         for h_id, syno_senses in dataset.items():
             for phr in syno_senses:
-                if self.sense_index.get(phr, []):
+                if self.sense_index.get(phr.lower(), []):
                     filtered_dataset[h_id].append(phr)
         not_in_index_percent = round(len(filtered_dataset) / len(dataset), 2) * 100
         print(f'{not_in_index_percent}% synonym groups are not found in the index.')
@@ -98,14 +98,15 @@ class SynoDataset(Dataset):
         input_synonym = choice(self.train_group2syno_senses[group])
 
         if self.level == 'sense':
-            output_synonyms = self.group2syno_senses[group]
+            output_synonyms = [(sense,) for sense in self.group2syno_senses[group]]
         elif self.level == 'synset':
-            output_synonyms = self.group2syno_synsets[group]
+            output_synonyms = [tuple(synset) for synset in self.group2synsets[group]]
 
-        sent_idx, in_sent_start, in_sent_end = choice(self.sense_index[input_synonym])
+        sent_idx, in_sent_start, in_sent_end = \
+            choice(self.sense_index[input_synonym.lower()])
         sent_toks = self.corpus[sent_idx].split()
         subword_idxs, syno_mask, subtok_start, subtok_end = \
-            get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
+            get_indices_and_masks(sent_toks, in_sent_start, in_sent_end, self.tokenizer)
         subword_idxs, syno_mask, subtok_start, subtok_end = \
             HypoDataset._cut_to_maximum_length(subword_idxs,
                                                syno_mask,
@@ -151,10 +152,11 @@ def batch_collate(batch: List[Union[List[float], List[int], int]]) -> List[torch
 
 
 if __name__ == '__main__':
-    data_path = Path('/home/hdd/data/synonym/')
+    data_path = Path('/home/hdd/data/hypernym/')
     corpus_path = data_path / 'corpus.news_dataset-sample.token.txt'
-    index_path = data_path / 'index.train.news_dataset-sample.json'
-    train_set_path = data_path / 'train_synonym.cased.not_lemma.json'
+    # TODO: build index for new train
+    index_path = data_path / 'index.full.news_dataset-sample.json'
+    train_set_path = data_path / 'train_synonyms.cased.not_lemma.json'
 
     model_path = Path('/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/')
     tokenizer_vocab_path = model_path / 'vocab.txt'
@@ -173,10 +175,10 @@ if __name__ == '__main__':
 
     sentence_indices, sentence_syno_mask, syno_idx = next(iter(ds))
     print(f'Indices: {sentence_indices}\n'
-          f'Hypo Mask: {sentence_syno_mask}\n'
+          f'Input Synonym Mask: {sentence_syno_mask}\n'
           f'Synonym idx: {syno_idx}')
     print('=' * 20)
-    print('Returning all synos')
+    print('Returning all synonyms')
 
     ds = SynoDataset(tokenizer,
                      corpus_path,
