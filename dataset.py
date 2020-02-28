@@ -174,8 +174,6 @@ class HypoDataset(Dataset):
         if sum(hypo_mask) == 0.0:
             print('Damn!')
 
-        subword_idxs = subword_idxs[:self.max_len]
-        hypo_mask = hypo_mask[:self.max_len]
         hype_prob = [0.0] * len(self.hypernym_list)
         if self.predict_all_hypes:
             hype_idxs = [self.hypernym_to_idx[tuple(hype)] for hype in all_hypes]
