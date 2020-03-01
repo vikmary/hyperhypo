@@ -22,7 +22,8 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                  args.wordnet_dir.glob('senses.*'))
 
     if args.bert_model_path is not None:
         from transformers import BertTokenizer

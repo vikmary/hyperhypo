@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+import gc
+import argparse
 import pickle
 from pathlib import Path
-import argparse
-# import tracemalloc
-import gc
 
 import torch
 from torch.utils.data import DataLoader
@@ -13,13 +13,13 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from torch.utils.data.sampler import SubsetRandomSampler
 
-from dataset import HypoDataset, batch_collate, get_hypernyms_list_from_train
+from dataset import batch_collate
+from dataset_synonym import SynoDataset, get_synonyms_list_from_train
 from hybert import HyBert
 from embedder import device, to_device
 
 
 def parse_args():
-    # default_model_dir = '/home/hdd/models/rubert_cased_L-12_H-768_A-12_v2/'
     default_model_dir = '/home/hdd/models/rubert_v2/rubert_cased_L-12_H-768_A-12_v2'
 
     parser = argparse.ArgumentParser()
@@ -30,26 +30,23 @@ def parse_args():
     parser.add_argument('--model-dir', '-m', type=Path, default=default_model_dir,
                         help='Path to the directory with model files')
     parser.add_argument('--model-file', type=Path, default='ptrubert.pt')
-    parser.add_argument('--only-train-hypes', action='store_true')
     parser.add_argument('--trainable-embeddings', action='store_true')
     parser.add_argument('--model-name', type=str, default='checkpoint',
                         help='The name to save the model')
     parser.add_argument('--synset-level', action='store_true')
-    parser.add_argument('--sample-hypernyms', action='store_true')
-    parser.add_argument('--predict-one-hype', action='store_true',
-                        help='whether predict one hype in loss or all')
+    parser.add_argument('--predict-one-syno', action='store_true',
+                        help='whether predict one synonym in loss or all')
     parser.add_argument('--use-projection', action='store_true',
                         help='learn projection output layer')
     parser.add_argument('--freeze-bert', action='store_true',
                         help='do not update bert parameters')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
-
     parser.add_argument('--embed-with-special-tokens', action='store_true',
                         help='use [CLS] and [SEP] when embedding phrases')
     args = parser.parse_args()
 
-    mode = 'train' if args.only_train_hypes else 'full'
+    mode = 'full'
     model_dir = args.model_dir
 
     data_path = Path('/home/hdd/data/hypernym/')
@@ -63,45 +60,40 @@ def parse_args():
         index_file = f'index.{mode}.news_dataset.json'
     elif corpus == 'wiki-sample':
         corpus_file = 'corpus.wikipedia-ru-2018-sample.token.txt'
-        index_file = 'index.train.wikipedia-ru-2018-sample.json'
+        index_file = f'index.{mode}.wikipedia-ru-2018-sample.json'
     else:
         raise NotImplementedError
 
     corpus_path = data_path / corpus_file
     index_path = data_path / index_file
-    train_path = data_path / 'train.cased.json'
-    valid_path = data_path / 'valid.cased.json'
-    
+    train_path = data_path / 'train_synonyms.cased.not_lemma.json'
+
     model_weights_path = model_dir / 'ptrubert.pt'
     config_path = model_dir / 'bert_config.json'
     tokenizer_vocab_path = model_dir / 'vocab.txt'
     args.corpus_path = corpus_path
     args.index_path = index_path
     args.train_path = train_path
-    args.valid_path = valid_path
     args.model_weights_path = model_weights_path
     args.config_path = config_path
     args.tokenizer_vocab_path = tokenizer_vocab_path
     args.model_dir = model_dir
-    
     return args
 
 
 def main():
-
     args = parse_args()
+
     level = 'synset' if args.synset_level else 'sense'
-    hype_list = get_hypernyms_list_from_train(args.train_path, level)
-    # print(hype_list)
-    # raise RuntimeError
-    valid_hype_list = get_hypernyms_list_from_train(args.valid_path, level)
-    hype_list.extend(valid_hype_list)
+    output_synonym_list = get_synonyms_list_from_train(args.train_path, level=level)
 
     config = BertConfig.from_pretrained(args.config_path)
     bert = BertModel.from_pretrained(args.model_weights_path, config=config)
     tokenizer = BertTokenizer.from_pretrained(args.model_dir, do_lower_case=False)
 
-    model = HyBert(bert, tokenizer, hype_list,
+    model = HyBert(bert,
+                   tokenizer,
+                   output_synonym_list,
                    use_projection=args.use_projection,
                    embed_with_encoder_output=True,
                    embed_wo_special_tokens=not args.embed_with_special_tokens)
@@ -110,17 +102,14 @@ def main():
     # print(f'Initializing model from {initialization}')
     # model.load_state_dict(torch.load(initialization))
     model.to(device)
-    # tracemalloc.start()
-    ds = HypoDataset(tokenizer,
+    ds = SynoDataset(tokenizer,
                      args.corpus_path,
                      args.index_path,
                      args.train_path,
-                     hype_list,
-                     predict_all_hypes=not args.predict_one_hype,
-                     valid_set_path=args.valid_path,
-                     level=level,
+                     output_synonym_list,
+                     predict_one=not args.predict_one_syno,
                      embed_with_special_tokens=args.embed_with_special_tokens,
-                     sample_hypernyms=args.sample_hypernyms)
+                     level=level)
 
     print(f'Train set len: {len(ds.get_train_idxs())}')
     print(f'Valid set len: {len(ds.get_valid_idxs())}')
@@ -128,9 +117,9 @@ def main():
     valid_sampler = SubsetRandomSampler(ds.get_valid_idxs())
 
     # TODO: add optional batch size
-    dl_train = DataLoader(ds, batch_size=46, collate_fn=batch_collate,
+    dl_train = DataLoader(ds, batch_size=32, collate_fn=batch_collate,
                           sampler=train_sampler)
-    dl_valid = DataLoader(ds, batch_size=46, collate_fn=batch_collate,
+    dl_valid = DataLoader(ds, batch_size=32, collate_fn=batch_collate,
                           sampler=valid_sampler)
 
     criterion = torch.nn.KLDivLoss(reduction='none')
@@ -167,10 +156,10 @@ def main():
     for epoch in range(epochs):
         print(f'Epoch: {epoch}')
         for batch in tqdm(dl_train):
-            idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(*batch)
+            idxs_batch, mask_batch, attention_masks_batch, syno_idxs = to_device(*batch)
             model.zero_grad()
             _, response = model(idxs_batch, mask_batch, attention_masks_batch)
-            loss = criterion(response, hype_idxs)
+            loss = criterion(response, syno_idxs)
             loss = torch.sum(loss) / len(idxs_batch)
             loss.backward()
             loss = loss.detach().cpu().numpy()
@@ -179,13 +168,6 @@ def main():
             else:
                 running_loss = running_loss * exponential_avg + loss * (1 - exponential_avg)
             writer.add_scalar('log-loss', loss, count)
-            # if count % 100 == 99:
-                # snapshot = tracemalloc.take_snapshot()
-                #
-                # with open(f'memstat/stats_{count}.pckl', 'wb') as fin:
-                #     pickle.dump(snapshot, fin)
-                # print(f'=================  {count} ======================')
-                # print(snapshot.statistics('lineno')[:50])
 
             # if count % save_every == save_every - 1:
             #     if running_loss < best_loss:
@@ -203,11 +185,11 @@ def main():
             # Average on 10 runs due to sampling of indexed examples
             for _ in tqdm(range(10)):
                 for batch in dl_valid:
-                    idxs_batch, mask_batch, attention_masks_batch, hype_idxs = to_device(
+                    idxs_batch, mask_batch, attention_masks_batch, syno_idxs = to_device(
                         *batch)
                     model.zero_grad()
                     _, response = model(idxs_batch, mask_batch, attention_masks_batch)
-                    loss = criterion(response, hype_idxs)
+                    loss = criterion(response, syno_idxs)
                     loss = torch.sum(loss)
                     val_count += len(idxs_batch)
                     val_loss += loss.detach().cpu().numpy()

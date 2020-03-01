@@ -6,7 +6,7 @@ import sys
 import json
 import ijson
 import collections
-from typing import Union, List, Dict, Iterator, Callable, Tuple, Any, Set
+from typing import Union, List, Dict, Iterator, Callable, Tuple, Any, Set, Optional
 from pathlib import Path
 import random
 import csv
@@ -108,10 +108,26 @@ def get_train_synsets2(fpaths: Iterator[Union[str, Path]]) -> Dict:
     return synsets
 
 
-def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
-    """Gets synsets with id as key and senses as values."""
-    synsets = {}
+def get_wordnet_senses(fpaths: Iterator[Union[str, Path]]) -> Dict:
+    """Gets senses with id as key and senses as values."""
+    senses = {}
     for fp in fpaths:
+        sys.stderr.write(f"Parsing {fp}.\n")
+        with open(fp, 'rt') as fin:
+            xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
+        for sense in xml_parser.findAll('sense'):
+            sense_d = sense.attrs
+            sense_id = sense_d.pop('id')
+            senses[sense_id] = sense_d
+    return senses
+
+
+def get_wordnet_synsets(synset_fpaths: Iterator[Union[str, Path]],
+                        senses_fpaths: Iterator[Union[str, Path]]) -> Dict:
+    """Gets synsets with id as key and senses as values."""
+    senses = get_wordnet_senses(senses_fpaths)
+    synsets = {}
+    for fp in synset_fpaths:
         sys.stderr.write(f"Parsing {fp}.\n")
         with open(fp, 'rt') as fin:
             xml_parser = BeautifulSoup(fin.read(), "lxml-xml")
@@ -123,8 +139,10 @@ def get_wordnet_synsets(fpaths: Iterator[Union[str, Path]]) -> Dict:
             # finding child senses
             synset_d['senses'] = []
             for sense in synset.findAll('sense'):
-                synset_d['senses'].append({'id': sense.get('id'),
-                                           'content': sense.contents[0]})
+                sense_d = senses[sense['id']]
+                synset_d['senses'].append({'id': sense['id'],
+                                           'lemma': sense_d['lemma'],
+                                           'content': sense_d['name']})
             # adding to dict of synsets
             synsets[synset_id] = synset_d
     return synsets
@@ -187,12 +205,28 @@ def get_hyperstar_senses(fpaths: Iterator[Union[str, Path]]) -> List[dict]:
 def get_all_related(synset_id: str,
                     synsets: Dict[str, dict],
                     relation_types: List[str] = ('POS-synonymy', 'hypernyms'),
-                    related: Set[str] = set()) -> Set[str]:
-    related.add(synset_id)
+                    related: Optional[Dict[str, int]] = None,
+                    level: int = 0) -> Dict[str, int]:
+    # print(f'current synset = {synset_id}, level = {level}, related={related}')
+    if not related:
+        related = {}
+    related[synset_id] = level
     for r_type in relation_types:
         for r_synset_d in synsets[synset_id].get(r_type, []):
+            if r_type == 'hypernyms':
+                new_level = level + 1
+            elif r_type == 'POS-synonymy':
+                new_level = level
             if r_synset_d['id'] not in related:
-                related.update(get_all_related(r_synset_d['id'], synsets, relation_types))
+                syn_related = get_all_related(r_synset_d['id'],
+                                              synsets,
+                                              relation_types,
+                                              related,
+                                              new_level)
+                for syn_rel in syn_related:
+                    if syn_rel not in related:
+                        # print(f'adding {syn_rel} with level {syn_related[syn_rel]}')
+                        related[syn_rel] = syn_related[syn_rel]
     return related
 
 

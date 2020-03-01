@@ -30,12 +30,14 @@ class HypoDataset(Dataset):
                  predict_all_hypes: bool = True,
                  max_len: int = 128,
                  valid_set_path: Union[str, Path, None] = None,
+                 embed_with_special_tokens: bool = False,
                  level: str = 'sense',
                  sample_hypernyms: bool = False):
         self.tokenizer = tokenizer
         self.hypo_index = self._read_json(hypo_index_path)
         self.corpus = self._read_corpus(corpus_path, self.hypo_index)
         self.level = level
+        self.embed_with_special_tokens = embed_with_special_tokens
         self.sample_hypernyms = sample_hypernyms
 
         train_set = self._read_json(train_set_path)
@@ -165,12 +167,13 @@ class HypoDataset(Dataset):
                                         self.max_len)
         cls_idx, sep_idx = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
         subword_idxs = [cls_idx] + subword_idxs + [sep_idx]
-        hypo_mask = [0.0] + hypo_mask + [0.0]
+        if self.embed_with_special_tokens:
+            hypo_mask = [1.0] + hypo_mask + [1.0]
+        else:
+            hypo_mask = [0.0] + hypo_mask + [0.0]
         if sum(hypo_mask) == 0.0:
             print('Damn!')
 
-        subword_idxs = subword_idxs[:self.max_len]
-        hypo_mask = hypo_mask[:self.max_len]
         hype_prob = [0.0] * len(self.hypernym_list)
         if self.predict_all_hypes:
             hype_idxs = [self.hypernym_to_idx[tuple(hype)] for hype in all_hypes]

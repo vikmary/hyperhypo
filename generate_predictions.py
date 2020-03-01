@@ -23,7 +23,7 @@ from postprocess_prediction import get_prediction
 from corpus_indexed import CorpusIndexed
 from wiktionary import DefinitionDB
 from utils import get_test_senses, get_train_synsets, synsets2senses, get_wordnet_synsets
-from utils import enrich_with_wordnet_relations
+from utils import enrich_with_wordnet_relations, get_all_related
 from prepare_corpora.utils import TextPreprocessor
 
 
@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument('--synset-level', '-S', action='store_true',
                         help='predict from model on the level of synsets,'
                         ' not on the level of words')
+    parser.add_argument('--embed-with-ruthes-name', action='store_true',
+                        help='embed hypernym synsets with ruthes names')
     # Data required for making predictions
     parser.add_argument('--wordnet-dir', type=Path, required=True,
                         help='path to a wordnet directory')
@@ -73,6 +75,11 @@ def parse_args():
                         ' other words')
     parser.add_argument('--embed-with-special-tokens', action='store_true',
                         help='use [CLS] and [SEP] when embedding phrases')
+    parser.add_argument('--score-hyperhyper', action='store_true',
+                        help='get hypernyms of predictions and score them')
+    parser.add_argument('--one-per-group', action='store_true',
+                        help='group predicted synsets and output one prediction'
+                        'for each group')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
@@ -135,10 +142,49 @@ def predict_with_hybert(model: HyBert,
                   key=lambda h_sc: h_sc[1], reverse=True)[:k]
 
 
+def group_synsets(synsets: List[str], wordnet_synsets: Dict) -> Dict[str, str]:
+    syn2group = {}
+    for s_id in synsets:
+        if s_id not in syn2group:
+            syn2group[s_id] = get_all_related(s_id, wordnet_synsets, ('hypernyms',))
+            syn2group[s_id] = {k: level
+                               for k, level in syn2group[s_id].items()
+                               if k in synsets}
+    # print('syn2group', syn2group)
+    not_covered = set(syn2group.keys())
+    syn2root_group = {}
+    for s_i_id in syn2group:
+        if s_i_id not in not_covered:
+            continue
+        not_covered.remove(s_i_id)
+        group_ids, root_group = [s_i_id], syn2group[s_i_id]
+        for s_j_id in syn2root_group:
+            if syn2root_group[s_j_id].keys() & root_group.keys():
+                group_ids.append(s_j_id)
+                if len(syn2root_group[s_j_id]) > len(root_group):
+                    root_group = syn2group[s_j_id]
+        for s_j_id in not_covered:
+            if syn2group[s_j_id].keys() & root_group.keys():
+                group_ids.append(s_j_id)
+                if len(syn2group[s_j_id]) > len(root_group):
+                    root_group = syn2group[s_j_id]
+        for s_id in group_ids:
+            if s_id in not_covered:
+                not_covered.remove(s_id)
+            syn2root_group[s_id] = root_group
+        # print('syn2root_group', syn2root_group)
+    syn2root_syn = {s_id: max(root_group, key=lambda s: root_group[s])
+                    for s_id, root_group in syn2root_group.items()}
+
+    # print('syn2root_syn', syn2root_syn)
+    return syn2root_syn
+
+
 def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
                     by: str,
                     k: int,
                     score_hyperhypernym_synsets: bool,
+                    one_per_group: bool,
                     pos: Optional[str] = None,
                     wordnet_synsets: Optional[Dict] = None) -> List[Tuple[str, float]]:
     if pos and pos not in ('nouns', 'adjectives', 'verbs'):
@@ -152,20 +198,39 @@ def rescore_synsets(hypernym_preds: List[Tuple[Union[List[str], str], float]],
     else:
         raise ValueError(f'Wrong value for by \'{by}\'')
 
-    synset_scores = collections.defaultdict(list)
+    hypernym_preds_new = []
     for cand_synsets, h_score in hypernym_preds:
         if isinstance(cand_synsets, str):
             cand_synsets = [cand_synsets]
         if score_hyperhypernym_synsets:
             cand_synsets = [h_s['id']
                             for s in cand_synsets
-                            for h_s in (wordnet_synsets[s].get('hypernyms') or [{'id': s}])]
+                            for h_s in (wordnet_synsets[s].get('hypernyms') or
+                                        [{'id': s}])]
+        if pos:
+            cand_synsets = [s_id for s_id in cand_synsets if (s_id[-1].lower() == pos[0])]
+        hypernym_preds_new.append((cand_synsets, h_score))
+
+    synset_scores = collections.defaultdict(list)
+    for cand_synsets, h_score in hypernym_preds_new:
         for h_synset in cand_synsets:
-            if pos and (h_synset[-1].lower() != pos[0]):
-                continue
             synset_scores[h_synset].append(h_score)
     synset_aggr_scores = {synset: aggr_fn(scores)
                           for synset, scores in synset_scores.items()}
+
+    if one_per_group:
+        uniq_synsets = set(s_id for s_ids, _ in hypernym_preds_new for s_id in s_ids)
+        syn2group_syn = group_synsets(list(uniq_synsets), wordnet_synsets)
+        syn_str = [(wordnet_synsets[k]['ruthes_name'], wordnet_synsets[v]['ruthes_name'])
+                   for k, v in syn2group_syn.items()]
+        print(f"Found {len(set(syn2group_syn.values()))} unique groups of {len(uniq_synsets)} predicted synsets.")
+        print(f'syn2group_syn map = {syn_str}.')
+
+        group_scores = collections.defaultdict(list)
+        for s_id, score in synset_aggr_scores.items():
+            group_scores[syn2group_syn[s_id]].append(score)
+        group_aggr_scores = {gr: max(scores) for gr, scores in group_scores.items()}
+        return sorted(group_aggr_scores.items(), key=lambda x: x[1], reverse=True)[:k]
     return sorted(synset_aggr_scores.items(), key=lambda x: x[1], reverse=True)[:k]
 
 
@@ -174,11 +239,16 @@ def load_candidates(fname: Union[str, Path],
     cands = collections.defaultdict(list)
     with open(fname, 'rt') as fin:
         for row in fin:
-            cand_word, cand_synset_id = row.split('\t', 2)[:2]
+            cand_word, cand_synset_id, ruthes_name = row.split('\t', 2)
+            ruthes_name = ruthes_name.strip()
             if senses2synset:
                 cands[cand_synset_id].append(cand_word)
+                if ruthes_name not in cands[cand_synset_id]:
+                    cands[cand_synset_id].append(ruthes_name)
             else:
                 cands[cand_word].append(cand_synset_id)
+                if cand_synset_id not in cands[ruthes_name]:
+                    cands[ruthes_name].append(cand_synset_id)
     if senses2synset:
         return {tuple(senses): synset_id for synset_id, senses in cands.items()}
     return cands
@@ -193,6 +263,10 @@ if __name__ == "__main__":
                                     lemmatize=True,
                                     lowercase=True)
 
+    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'),
+                                  args.wordnet_dir.glob('senses.*'))
+    enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
+
     print(f"Loading BertModel from {args.bert_model_dir}.")
     config = BertConfig.from_pretrained(args.bert_model_dir / 'bert_config.json')
     tokenizer = BertTokenizer.from_pretrained(args.bert_model_dir, do_lower_case=False)
@@ -203,8 +277,14 @@ if __name__ == "__main__":
     print(f"Initializing HyBert.")
     if args.synset_level:
         candidates = load_candidates(args.candidates, senses2synset=True)
+        if args.embed_with_ruthes_name:
+            candidates = {(synsets[s_id]['ruthes_name'].lower(),): s_id
+                          for s_id in candidates.values()}
         hypernym_list = list(candidates.keys())
     else:
+        if args.embed_with_ruthes_name:
+            raise ValueError(f'embedding with ruthes name is not supported for phrase '
+                             f'level')
         candidates = load_candidates(args.candidates)
         hypernym_list = [[k] for k in candidates]
     model = HyBert(bert, tokenizer, hypernym_list,
@@ -226,10 +306,6 @@ if __name__ == "__main__":
     print(f"Scoring candidates with '{args.metric}' metric.")
 
     # load wordnet and word to get prediction for
-    # if args.is_train_format:
-    #     test_synsets = get_train_synsets([args.data_path], args.synset_info_fpaths)
-    #     test_senses = [s['content'].lower() for s in synsets2senses(test_synsets)]
-    # else:
     test_senses = [s['content'].lower() for s in get_test_senses([args.data_path])]
     # test_senses = ['ЭПИЛЕПСИЯ', 'ЭЯКУЛЯЦИЯ', 'ЭПОЛЕТ']
     test_lemmas = [preprocessor(s)[1] for s in test_senses]
@@ -239,7 +315,12 @@ if __name__ == "__main__":
     if args.use_definitions:
         print("Embeding using definitions.")
         ddb = DefinitionDB()
-    elif args.corpus_path is not None:
+        # if not args.embed_with_context:
+        #     raise NotImplementedError('embedding wo countext is not availabled'
+        #                               ' for embedding with definitions right now.')
+        if args.corpus_path is not None:
+            raise ValueError('corpus can\'t be used if definitions are used')
+    if args.corpus_path is not None:
         print("Embedding using corpora.")
         index_path = CorpusIndexed.get_index_path(args.corpus_path,
                                                   suffix=args.data_path.stem)
@@ -254,9 +335,6 @@ if __name__ == "__main__":
         corpus = CorpusIndexed.from_index(index_path, vocab=test_lemmas)
     else:
         print("Embedding words without context.")
-
-    synsets = get_wordnet_synsets(args.wordnet_dir.glob('synsets.*'))
-    enrich_with_wordnet_relations(synsets, args.wordnet_dir.glob('synset_relations.*'))
 
     # load fallback predictions if needed
     fallback_preds = []
@@ -278,10 +356,34 @@ if __name__ == "__main__":
             embed_with_special_tokens = args.embed_with_special_tokens
             contexts = []
             if args.use_definitions:
-                definition = ddb(word)
-                if (definition != word) and definition.strip():
-                    def_tokens = word.split() + ['—'] + definition.split()
-                    contexts = [(def_tokens, 0, len(word.split()))]
+                definitions = ddb(word)
+                if definitions != [word]:
+                    # def_tokens = word.split() + ['—'] + definition.split()
+                    contexts = []
+                    for d in definitions:
+                        pos_start, pos_end = None, None
+                        d_tokens = d.split()
+                        word_lower_tokens = word.lower().split()
+                        d_lower_tokens = [tok.lower() for tok in d_tokens]
+                        if word_lower_tokens[0] in d_lower_tokens:
+                            pos_start = d_lower_tokens.index(word_lower_tokens[0])
+                            if d_lower_tokens[pos_start:pos_start +
+                                              len(word_lower_tokens)] == \
+                                    word_lower_tokens:
+                                pos_end = pos_start + len(word_lower_tokens)
+                        if pos_end is None:
+                            if '-' in d_tokens:
+                                pos_start, pos_end = 0, d_tokens.index('-')
+                            elif '—' in d_tokens:
+                                pos_start, pos_end = 0, d_tokens.index('—')
+                            else:
+                                word_tokens = (word[0].upper() + word[1:]).split()
+                                d_tokens = word_tokens + ['—'] + d_tokens
+                                pos_start, pos_end = 0, len(word_tokens)
+
+                        contexts.append((d_tokens, pos_start, pos_end))
+                    # contexts = [(d.split(), 0, 1) for d in definitions if d.strip()]
+                    # contexts = [(def_tokens, 0, len(word.split()))]
                     # embed_with_context = True
                     # embed_with_special_tokens = True
             if corpus:
@@ -298,12 +400,15 @@ if __name__ == "__main__":
                     contexts = contexts or [(word.lower().split(), 0, len(word.split()))]
             if contexts:
                 random_contexts = sample(contexts, min(args.num_contexts, len(contexts)))
-                print(f"Random context ({word}) = {random_contexts[0]}")
+                if args.use_definitions:
+                    print(f"Contexts ({word}) = {random_contexts}")
+                else:
+                    print(f"Random context ({word}) = {random_contexts[0]}")
                 try:
                     preds = predict_with_hybert(model,
                                                 random_contexts,
                                                 metric=args.metric,
-                                                k=30,
+                                                k=100,
                                                 embed_with_context=embed_with_context,
                                                 embed_with_special_tokens=embed_with_special_tokens,
                                                 batch_size=args.batch_size,
@@ -324,7 +429,8 @@ if __name__ == "__main__":
                                                k=15,
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
-                                               score_hyperhypernym_synsets=True)
+                                               one_per_group=args.one_per_group,
+                                               score_hyperhypernym_synsets=args.score_hyperhyper)
                 pred_senses = [([s['content'] for s in synsets[p]['senses']], sc)
                                for p, sc in pred_synsets]
                 print(f"Rescored pred synsets({word}): {pred_senses[:4]}")

@@ -127,7 +127,7 @@ class DefinitionDB:
                 filtered_definitions.append(filtered_definition_list)
         return filtered_definitions
 
-    def __call__(self, term_name: str) -> str:
+    def __call__(self, term_name: str) -> List[str]:
         name = term_name.lower()
         name = re.sub('\s?\(.+?\)', '', name)
         defins = []
