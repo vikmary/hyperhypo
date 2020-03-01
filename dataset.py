@@ -275,12 +275,17 @@ class HypoDataset(Dataset):
 def get_indices_and_masks(sent_tokens: List[str],
                           in_sent_start: int,
                           in_sent_end: int,
-                          tokenizer: BertTokenizer) \
+                          tokenizer: BertTokenizer,
+                          mask_mention: bool = False) \
         -> Tuple[List[int], List[float], int, int]:
     if in_sent_start not in range(len(sent_tokens)) or\
             in_sent_end not in range(1, len(sent_tokens) + 1):
         raise ValueError(f'wrong input: tokens {sent_tokens} don\'t contain pos'
                          f' ({in_sent_start}, {in_sent_end}).')
+    if mask_mention:
+        for n in range(in_sent_start, in_sent_end):
+            sent_tokens[n] = tokenizer.mask_token
+    print(sent_tokens)
     sent_subword_idxs = []
     sent_subwords = []
     sent_hypo_mask = []
