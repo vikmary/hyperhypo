@@ -28,6 +28,7 @@ class HypoDataset(Dataset):
                  hypernym_list: Union[List[Tuple[str]]],
                  debug: bool = False,
                  predict_all_hypes: bool = True,
+                 mask_mention: bool = False,
                  max_len: int = 128,
                  valid_set_path: Union[str, Path, None] = None,
                  embed_with_special_tokens: bool = False,
@@ -37,6 +38,7 @@ class HypoDataset(Dataset):
         self.hypo_index = self._read_json(hypo_index_path)
         self.corpus = self._read_corpus(corpus_path, self.hypo_index)
         self.level = level
+        self.mask_mention = mask_mention
         self.embed_with_special_tokens = embed_with_special_tokens
         self.sample_hypernyms = sample_hypernyms
 
@@ -158,7 +160,9 @@ class HypoDataset(Dataset):
         sent_idx, in_sent_start, in_sent_end = choice(self.hypo_index[hypo])
         sent_toks = self.corpus[sent_idx].split()
         subword_idxs, hypo_mask, subtok_start, subtok_end = \
-            self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
+            get_indices_and_masks(sent_toks, in_sent_start, in_sent_end,
+                                  tokenizer=self.tokenizer,
+                                  mask_mention=self.mask_mention)
         subword_idxs, hypo_mask, subtok_start, subtok_end = \
             self._cut_to_maximum_length(subword_idxs,
                                         hypo_mask,
@@ -189,28 +193,6 @@ class HypoDataset(Dataset):
             hype_prob[hype_idx] = 1.0
         return subword_idxs, hypo_mask, hype_prob
 
-    def _get_indices_and_masks(self,
-                               sent_tokens: List[str],
-                               in_sent_start: int,
-                               in_sent_end: int) \
-            -> Tuple[List[int], List[float], int, int]:
-        sent_subword_idxs = []
-        sent_subwords = []
-        sent_hypo_mask = []
-        for n, tok in enumerate(sent_tokens):
-            if n == in_sent_start:
-                new_in_sent_start = len(sent_subwords)
-            subtokens = self.tokenizer.tokenize(tok)
-            sent_subwords.extend(subtokens)
-            subtok_idxs = self.tokenizer.convert_tokens_to_ids(subtokens)
-            sent_subword_idxs.extend(subtok_idxs)
-            # NOTE: absence of + 1 because absence of [CLS] token in the beginning
-            mask_value = float(in_sent_start <= n < in_sent_end)
-            sent_hypo_mask.extend([mask_value] * len(subtok_idxs))
-            if n == in_sent_end - 1:
-                new_in_sent_end = len(sent_subwords) + 1
-        return sent_subword_idxs, sent_hypo_mask, new_in_sent_start, new_in_sent_end
-
     @staticmethod
     def _cut_to_maximum_length(subword_idxs: List[str],
                                hypo_mask: List[str],
@@ -237,7 +219,9 @@ class HypoDataset(Dataset):
         for sent_idx, in_sent_start, in_sent_end  in hypo_mentions:
             sent_toks = self.corpus[sent_idx].split()
             subword_idxs, hypo_mask, subtok_start, subtok_end = \
-                self._get_indices_and_masks(sent_toks, in_sent_start, in_sent_end)
+                get_indices_and_masks(sent_toks, in_sent_start, in_sent_end,
+                                      tokenizer=self.tokenizer,
+                                      mask_mention=self.mask_mention)
             subword_idxs, hypo_mask, subtok_start, subtok_end = \
                         self._cut_to_maximum_length(subword_idxs,
                                                     hypo_mask,
@@ -288,7 +272,6 @@ def get_indices_and_masks(sent_tokens: List[str],
     if mask_mention:
         for n in range(in_sent_start, in_sent_end):
             sent_tokens[n] = tokenizer.mask_token
-    print(sent_tokens)
     sent_subword_idxs = []
     sent_subwords = []
     sent_hypo_mask = []

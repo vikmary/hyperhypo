@@ -44,7 +44,8 @@ def parse_args():
                         help='do not update bert parameters')
     parser.add_argument('--lr', default=2e-5, type=float,
                         help='learning rate for training')
-
+    parser.add_argument('--mask-mention', action='store_true',
+                        help='whether to mask mention of hyponym in context')
     parser.add_argument('--embed-with-special-tokens', action='store_true',
                         help='use [CLS] and [SEP] when embedding phrases')
     args = parser.parse_args()
@@ -119,6 +120,7 @@ def main():
                      predict_all_hypes=not args.predict_one_hype,
                      valid_set_path=args.valid_path,
                      level=level,
+                     mask_mention=args.mask_mention,
                      embed_with_special_tokens=args.embed_with_special_tokens,
                      sample_hypernyms=args.sample_hypernyms)
 
