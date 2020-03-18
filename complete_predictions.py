@@ -47,8 +47,11 @@ if __name__ == "__main__":
                 fout.write(f'{test_phr}\t{h_id}\t{other}\n')
                 skipped += 1
             else:
+                phr_preds = set()
                 for h_id, other in preds[test_phr]:
-                    fout.write(f'{test_phr}\t{h_id}\t{other}\n')
+                    if h_id not in phr_preds:
+                        phr_preds.add(h_id)
+                        fout.write(f'{test_phr}\t{h_id}\t{other}\n')
 
     print(f"Found {len(test_phrs) - skipped} out of {len(preds)} predictions.")
 

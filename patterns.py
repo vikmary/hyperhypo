@@ -22,8 +22,8 @@ def parse_args():
                         help='path to a wordnet directory')
     parser.add_argument('--outpath', type=Path, required=True,
                         help='path for output predictions')
-    parser.add_argument('--pos', type=Optional[str], default=None,
-                        choices=(None, 'nouns', 'verbs', 'adjectives'),
+    parser.add_argument('--pos', # type=Optional[str], default=None,
+                        # choices=('nouns', 'verbs', 'adjectives'),
                         help='filter hypernyms of only this type of pos')
     return parser.parse_args()
 
