@@ -32,12 +32,8 @@ def parse_args():
     # Test words parameters
     parser.add_argument('--data-path', type=Path, required=True,
                         help='dataset path to get predictions for')
-    parser.add_argument('--synset-info-paths', type=Path, nargs='+',
-                        help='paths to synset info for data if is-train-format')
     parser.add_argument('--pos', type=str, default=None,
                         help='filter hypernyms of only this type of pos')
-    parser.add_argument('--is-train-format', '-T', action='store_true',
-                        help='whether input data is in train format or in test format')
     parser.add_argument('--synset-level', '-S', action='store_true',
                         help='predict from model on the level of synsets,'
                         ' not on the level of words')
@@ -70,8 +66,10 @@ def parse_args():
                         help='maximum length of context in subtokens')
     parser.add_argument('--metric', default='product', choices=('product', 'cosine'),
                         help='metric to use for choosing the best predictions')
+    parser.add_argument('--embed-with-cls', action='store_true',
+                        help='represent hyponyms with cls token only')
     parser.add_argument('--embed-with-context', action='store_true',
-                        help='represent hypernyms with whole contexts, do not mask out'
+                        help='represent hyponyms with whole contexts, do not mask out'
                         ' other words')
     parser.add_argument('--embed-with-special-tokens', action='store_true',
                         help='use [CLS] and [SEP] when embedding phrases')
@@ -80,6 +78,8 @@ def parse_args():
     parser.add_argument('--one-per-group', action='store_true',
                         help='group predicted synsets and output one prediction'
                         'for each group')
+    parser.add_argument('--mask-mention', action='store_true',
+                        help='whether to mask mention of hyponym in context')
     # Ouput path
     parser.add_argument('--output-prefix', '-o', type=str, required=True,
                         help='path to a file with it\'s prefix')
@@ -91,7 +91,9 @@ def predict_with_hybert(model: HyBert,
                         k: int,
                         metric: str,
                         batch_size: int,
+                        mask_mention: bool = False,
                         embed_with_context: bool = False,
+                        embed_with_cls: bool = False,
                         embed_with_special_tokens: bool = False,
                         max_length: int = 512) -> List[Tuple[List[str], float]]:
     if metric not in ('product', 'cosine'):
@@ -102,7 +104,8 @@ def predict_with_hybert(model: HyBert,
         b_subtok_idxs, b_hypo_masks = [], []
         for context, l_start, l_end in contexts[b_start_id: b_start_id + batch_size]:
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
-                get_indices_and_masks(context, l_start, l_end, model.tokenizer)
+                get_indices_and_masks(context, l_start, l_end, model.tokenizer,
+                                      mask_mention=mask_mention)
             subtok_idxs, hypo_mask, subtok_start, subtok_end = \
                 HypoDataset._cut_to_maximum_length(subtok_idxs,
                                                    hypo_mask,
@@ -115,6 +118,8 @@ def predict_with_hybert(model: HyBert,
             b_subtok_idxs.append([cls_idx] + subtok_idxs + [sep_idx])
             if embed_with_special_tokens:
                 b_hypo_masks.append([1.0] + hypo_mask + [1.0])
+            elif embed_with_cls:
+                hypo_mask = [1.0] + [0.0] * (len(subtok_idxs) + 1)
             else:
                 b_hypo_masks.append([0.0] + hypo_mask + [0.0])
         batch = HypoDataset.torchify_and_pad(b_subtok_idxs, b_hypo_masks)
@@ -289,7 +294,7 @@ if __name__ == "__main__":
         hypernym_list = [[k] for k in candidates]
     model = HyBert(bert, tokenizer, hypernym_list,
                    use_projection=args.use_projection,
-                   embed_wo_special_tokens=not args.embed_with_special_tokens,
+                   embed_wo_special_tokens=False,
                    embed_with_encoder_output=True)
     model.to(device)
     if args.load_checkpoint:
@@ -352,7 +357,6 @@ if __name__ == "__main__":
     with open(out_pred_path, 'wt') as f_pred:
         for word, lemma in tqdm(zip(test_senses, test_lemmas), total=len(test_senses)):
             # import ipdb; ipdb.set_trace()
-            embed_with_context = args.embed_with_context
             embed_with_special_tokens = args.embed_with_special_tokens
             contexts = []
             if args.use_definitions:
@@ -409,7 +413,9 @@ if __name__ == "__main__":
                                                 random_contexts,
                                                 metric=args.metric,
                                                 k=100,
-                                                embed_with_context=embed_with_context,
+                                                mask_mention=args.mask_mention,
+                                                embed_with_context=args.embed_with_context,
+                                                embed_with_cls=args.embed_with_cls,
                                                 embed_with_special_tokens=embed_with_special_tokens,
                                                 batch_size=args.batch_size,
                                                 max_length=args.max_context_length)
@@ -426,7 +432,7 @@ if __name__ == "__main__":
                     print(f"Pred hyponyms ({word}): {preds[:4]}")
                 pred_synsets = rescore_synsets(pred_synsets,
                                                by='sum',
-                                               k=15,
+                                               k=100,
                                                pos=args.pos,
                                                wordnet_synsets=synsets,
                                                one_per_group=args.one_per_group,
