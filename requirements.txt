@@ -9,3 +9,4 @@ tensorboardx==2.0
 ijson==2.6.1
 spacy-udpipe==0.1.0
 wikipedia==1.4.0  
+torch==1.7.0
